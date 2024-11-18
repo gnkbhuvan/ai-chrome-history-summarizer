@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      padding: 10px;
+    }
+
+    #summary {
+      white-space: pre-wrap;
+    }
+  </style>
+</head>
+
+<body>
+  <h2>Today's Activities</h2>
+  <div id="summary">Loading...</div>
+  <button id="copyButton">Copy Summary</button>
+</body>
+<script src="popup.js">
+    document.getElementById('copyButton').addEventListener('click', () => {
+    const summaryText = document.getElementById('summary').innerText;
+    navigator.clipboard.writeText(summaryText).then(() => {
+    alert('Summary copied to clipboard!');
+    });
+  });
+</script>
+
+</html>

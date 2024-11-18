@@ -1,0 +1,18 @@
+{
+  "manifest_version": 3,
+  "name": "Activity Summarizer",
+  "version": "1.0",
+  "permissions": [
+    "tabs",
+    "history",
+    "activeTab",
+    "scripting",
+    "storage"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html"
+  }
+}
