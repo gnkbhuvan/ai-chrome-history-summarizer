@@ -1,18 +1,31 @@
 {
   "manifest_version": 3,
-  "name": "Activity Summarizer",
+  "name": "Advanced Timesheet Tracker",
   "version": "1.0",
+  "description": "Detailed 24-hour browsing analysis with AI insights",
   "permissions": [
-    "tabs",
     "history",
-    "activeTab",
-    "scripting",
-    "storage"
+    "tabs",
+    "storage",
+    "downloads",
+    "activeTab"
+  ],
+  "host_permissions": [
+    "https://api.anthropic.com/*"
   ],
   "background": {
     "service_worker": "background.js"
   },
   "action": {
-    "default_popup": "popup.html"
-  }
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icon.png",
+      "48": "icon.png",
+      "128": "icon.png"
+    }
+  },
+  "web_accessible_resources": [{
+    "resources": ["llm-analyzer.js", ".env"],
+    "matches": ["<all_urls>"]
+  }]
 }
