@@ -233,10 +233,8 @@ class TimesheetTracker {
           }))
           .sort((a, b) => b.duration - a.duration);
 
-        const totalTime = uniqueActivities.reduce((sum, activity) => sum + activity.duration, 0);
-
         // Get LLM-powered detailed breakdown
-        const llmSummary = await this.getLLMDetailedBreakdown(uniqueActivities, totalTime);
+        const llmSummary = await this.getLLMDetailedBreakdown(uniqueActivities);
         resolve(llmSummary);
       } catch (error) {
         console.error('Summarize failed:', error);
@@ -254,7 +252,7 @@ class TimesheetTracker {
     return `${remainingMinutes}m`;
   }
 
-  async getLLMDetailedBreakdown(activities, totalTime) {
+  async getLLMDetailedBreakdown(activities) {
     try {
       if (!this.ANTHROPIC_API_KEY) {
         throw new Error('API key not loaded. Please check extension configuration.');
@@ -309,81 +307,57 @@ class TimesheetTracker {
             role: 'user',
             content: `Based on the following browsing activities, create a detailed daily timesheet summary. Use the EXACT times provided in the data, do not modify or adjust them.
 
-            Total Tracked Time: ${this.formatDuration(totalTime)}
-
             Browsing Activities:
             ${JSON.stringify(formattedActivities, null, 2)}
 
             <prompt> <role> You are a precise time-tracking analyzer and timesheet generator, specifically designed to process and format web browsing activity data into structured, professional timesheet entries. </role>
 
             <input_parameters>
-                <parameter name="total_tracked_time">Total duration of tracked activities</parameter>
                 <parameter name="browsing_activities">JSON array of web browsing data including timestamps, URLs, and page titles</parameter>
             </input_parameters>
 
             <key_responsibilities>
                 <task>Parse and analyze web browsing data with exact timestamp preservation</task>
-                <task>Group related activities by domain and purpose</task>
-                <task>Generate formatted timesheet entries</task>
-                <task>Maintain data accuracy and time precision</task>
+                <task>Generate clear, well-formatted timesheet entries</task>
+                <task>Group activities by date and domain</task>
+                <task>Identify key browsing patterns</task>
             </key_responsibilities>
 
-            <processing_rules>
-                <time_handling>
-                    <rule>Preserve exact timestamps from input data without modifications</rule>
-                    <rule>Convert all duration values to HH:MM format</rule>
-                    <rule>Use 12-hour time format (AM/PM) for display</rule>
-                </time_handling>
-
-                <activity_grouping>
-                    <rule>Group consecutive activities on the same domain</rule>
-                    <rule>Combine related tasks with similar purposes</rule>
-                    <rule>Maintain chronological order of activities</rule>
-                </activity_grouping>
-
-                <description_formatting>
-                    <rule>Extract meaningful descriptions from webpage titles</rule>
-                    <rule>Include ticket numbers/JIRA references when found in URLs</rule>
-                    <rule>Use clear, professional activity descriptions</rule>
-                </description_formatting>
-            </processing_rules>
-
             <output_format>
-                <table>
-                    <columns>
-                        <column name="Date" format="YYYY-MM-DD"/>
-                        <column name="Time" format="HH:MM AM/PM - HH:MM AM/PM"/>
-                        <column name="Description" format="Clear activity description"/>
-                        <column name="Duration" format="H:MM"/>
-                    </columns>
-                    <separator>tab character (\t)</separator>
-                </table>
+                <format>
+                    ### [Date]
+                    
+                    | Time  | Website     | Domain      | Activity Description |
+                    |-------|-------------|-------------|---------------------|
+                    | HH:MM | example.com | example.com | Detailed activity description that can span multiple lines if needed. Make sure to provide clear and informative descriptions. |
+                </format>
+                <column_specs>
+                    1. Time: Fixed width (HH:MM format)
+                    2. Website: Fixed width (base URL only)
+                    3. Domain: Fixed width (main domain)
+                    4. Description: Flexible width, can wrap to multiple lines
+                </column_specs>
+                <formatting_rules>
+                    1. Keep time format consistent: HH:MM (24-hour)
+                    2. Trim website URLs to main path
+                    3. Keep domain names clean and consistent
+                    4. Write detailed descriptions that explain the activity
+                    5. Allow descriptions to wrap naturally
+                    6. Maintain proper table alignment
+                </formatting_rules>
             </output_format>
 
-            <validation_checks>
-                <check>Ensure all times match input data exactly</check>
-                <check>Verify duration calculations are accurate</check>
-                <check>Confirm proper tab separation between columns</check>
-                <check>Validate date format consistency</check>
-            </validation_checks>
+            <special_instructions>
+                1. Group entries by date with clear date headers
+                2. Within each date, maintain chronological order
+                3. Keep time column narrow and fixed width
+                4. Let description column use remaining space
+                5. Format URLs consistently
+                6. Write clear, informative descriptions
+                7. Use proper markdown table syntax
+            </special_instructions>
 
-            <example_output>
-                Date        Time                    Description         Duration
-                2024-11-20  10:00 AM - 10:15 AM    Google Search      0:15
-                2024-11-20  11:25 AM - 11:40 AM    Github Research    0:15
-            </example_output>
-
-            <error_handling>
-                <instruction>If any data is missing or invalid, mark it clearly with [DATA MISSING] or [INVALID] rather than making assumptions</instruction>
-                <instruction>Report any timestamp inconsistencies without attempting to correct them</instruction>
-            </error_handling>
-
-            <additional_notes>
-                <note>Maintain exact precision of input timestamps</note>
-                <note>Do not round or adjust times</note>
-                <note>Preserve all ticket numbers and reference IDs found in URLs</note>
-            </additional_notes>
-            </prompt>`
+            Please generate a detailed timesheet summary following these specifications. Make sure each column respects its width constraints and descriptions are properly formatted.</prompt>`
           }]
         })
       });
@@ -434,37 +408,64 @@ class TimesheetTracker {
   }
 
   async loadHistoryData() {
-    const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const endTime = Date.now();
+    const startTime = endTime - (24 * 60 * 60 * 1000);
     
     return new Promise((resolve) => {
       chrome.history.search({
         text: '',
-        startTime: twentyFourHoursAgo.getTime(),
+        startTime: startTime,
+        endTime: endTime,
         maxResults: 10000
       }, async (historyItems) => {
+        this.activityLog = [];
+        
         for (const item of historyItems) {
           if (!item.url || item.url.startsWith('chrome://') || item.url.startsWith('chrome-extension://')) {
             continue;
           }
 
-          const urlObj = new URL(item.url);
-          const domain = urlObj.hostname;
-          const visitTime = new Date(item.lastVisitTime);
-          
-          const duration = item.visitTime ? 
-            ((item.endTime || Date.now()) - item.visitTime) / 1000 / 60 : 
-            0;
+          try {
+            const urlObj = new URL(item.url);
+            const domain = urlObj.hostname;
+            
+            // Get all visits for this URL
+            const visits = await new Promise(resolve => {
+              chrome.history.getVisits({ url: item.url }, resolve);
+            });
 
-          this.activityLog.push({
-            date: visitTime.toLocaleDateString(),
-            time: visitTime.toLocaleTimeString(),
-            domain: domain,
-            title: item.title || domain,
-            startTime: visitTime.toISOString(),
-            endTime: item.endTime ? new Date(item.endTime).toISOString() : null,
-            duration: duration,
-            url: item.url
-          });
+            if (visits.length > 0) {
+              visits.sort((a, b) => a.visitTime - b.visitTime);
+              
+              for (let i = 0; i < visits.length; i++) {
+                const visit = visits[i];
+                const nextVisit = visits[i + 1];
+                const visitTime = new Date(visit.visitTime);
+                
+                if (visit.visitTime >= startTime && visit.visitTime <= endTime) {
+                  let duration = 1; // Default duration in minutes
+                  
+                  if (nextVisit) {
+                    const timeDiff = (nextVisit.visitTime - visit.visitTime) / 1000 / 60;
+                    duration = timeDiff < 30 ? timeDiff : 1; // Cap at 30 minutes
+                  }
+
+                  this.activityLog.push({
+                    date: visitTime.toLocaleDateString(),
+                    time: visitTime.toLocaleTimeString(),
+                    domain: domain,
+                    title: item.title || domain,
+                    startTime: visitTime.toISOString(),
+                    endTime: nextVisit ? new Date(nextVisit.visitTime).toISOString() : null,
+                    duration: duration,
+                    url: item.url
+                  });
+                }
+              }
+            }
+          } catch (error) {
+            console.error('Error processing history item:', error);
+          }
         }
 
         this.activityLog.sort((a, b) => new Date(a.startTime) - new Date(b.startTime));

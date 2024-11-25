@@ -187,6 +187,55 @@
       line-height: 1.6;
     }
 
+    #output table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 16px 0;
+      background: var(--bg-secondary);
+      table-layout: fixed;
+    }
+
+    #output th {
+      background: var(--primary-color);
+      color: var(--text-primary);
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      padding: 12px;
+      border: 1px solid rgba(255, 255, 255, 0.2);
+    }
+
+    #output th:nth-child(1) { width: 80px; }  /* Time */
+    #output th:nth-child(2) { width: 120px; } /* Website */
+    #output th:nth-child(3) { width: 120px; } /* Domain */
+    #output th:nth-child(4) { width: auto; }   /* Description */
+
+    #output td {
+      padding: 10px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      vertical-align: top;
+      word-wrap: break-word;
+      white-space: normal;
+    }
+
+    #output td:nth-child(4) {
+      min-width: 200px;
+      line-height: 1.4;
+    }
+
+    #output tr:hover {
+      background: rgba(255, 255, 255, 0.05);
+    }
+
+    #output h3 {
+      color: var(--accent-color);
+      margin: 24px 0 16px 0;
+      font-size: 18px;
+      font-weight: 600;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+      padding-bottom: 8px;
+    }
+
     #output::-webkit-scrollbar {
       width: 8px;
     }
@@ -331,10 +380,6 @@
     </div>
 
     <div class="stat-grid">
-      <div class="stat-card">
-        <div class="stat-value" id="totalTime">0:00</div>
-        <div class="stat-label">Total Time</div>
-      </div>
       <div class="stat-card">
         <div class="stat-value" id="totalSites">0</div>
         <div class="stat-label">Sites Visited</div>

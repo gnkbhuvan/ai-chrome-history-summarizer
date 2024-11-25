@@ -7,38 +7,45 @@ document.addEventListener('DOMContentLoaded', function() {
   const output = document.getElementById('output');
   const successMessage = document.getElementById('successMessage');
   const errorMessage = document.getElementById('errorMessage');
-  const totalTimeElement = document.getElementById('totalTime');
   const totalSitesElement = document.getElementById('totalSites');
-
-  // Function to format time duration
-  function formatDuration(minutes) {
-    const hours = Math.floor(minutes / 60);
-    const mins = Math.round(minutes % 60);
-    return `${hours}:${mins.toString().padStart(2, '0')}`;
-  }
 
   // Function to update stats
   function updateStats() {
+    const endTime = Date.now();
+    const startTime = endTime - (24 * 60 * 60 * 1000); // Last 24 hours
+
     chrome.history.search({
       text: '',
-      startTime: Date.now() - (24 * 60 * 60 * 1000), // Last 24 hours
+      startTime: startTime,
+      endTime: endTime,
       maxResults: 10000
-    }, function(data) {
-      // Count unique domains
-      const uniqueDomains = new Set();
-      let totalTimeSpent = 0;
+    }, async function(historyItems) {
+      const domains = new Set();
 
-      data.forEach(item => {
-        const url = new URL(item.url);
-        uniqueDomains.add(url.hostname);
-        
-        // Estimate time spent (average 2 minutes per visit)
-        totalTimeSpent += 2 * item.visitCount;
-      });
+      // Get detailed visit information for each history item
+      for (const item of historyItems) {
+        try {
+          if (!item.url || item.url.startsWith('chrome://') || item.url.startsWith('chrome-extension://')) {
+            continue;
+          }
+
+          const url = new URL(item.url);
+          domains.add(url.hostname);
+        } catch (error) {
+          console.error('Error processing history item:', error);
+        }
+      }
 
       // Update UI
-      totalSitesElement.textContent = uniqueDomains.size;
-      totalTimeElement.textContent = formatDuration(totalTimeSpent);
+      totalSitesElement.textContent = domains.size.toString();
+
+      // Store the latest stats
+      chrome.storage.local.set({
+        'lastStats': {
+          totalSites: domains.size,
+          timestamp: Date.now()
+        }
+      });
     });
   }
 
@@ -54,7 +61,7 @@ document.addEventListener('DOMContentLoaded', function() {
     }
   });
 
-  // Update stats initially and every minute
+  // Update stats every minute
   updateStats();
   setInterval(updateStats, 60000);
 
@@ -138,9 +145,6 @@ document.addEventListener('DOMContentLoaded', function() {
       copyBtn.disabled = false;
       clearBtn.disabled = false;
       showSuccess('Summary generated successfully!');
-      
-      // Update stats after generating summary
-      updateStats();
     } catch (error) {
       showError('Failed to generate summary: ' + error.message);
       console.error('Summarize error:', error);
@@ -167,8 +171,6 @@ document.addEventListener('DOMContentLoaded', function() {
       });
 
       showSuccess('Timesheet exported successfully!');
-      // Update stats after exporting
-      updateStats();
     } catch (error) {
       showError('Failed to export: ' + error.message);
       console.error('Export error:', error);
