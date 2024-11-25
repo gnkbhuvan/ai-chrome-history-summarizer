@@ -13,8 +13,12 @@
   "host_permissions": [
     "https://api.anthropic.com/*"
   ],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'; connect-src 'self' https://api.anthropic.com;"
+  },
   "background": {
-    "service_worker": "background.js"
+    "service_worker": "dist/background.bundle.js",
+    "type": "module"
   },
   "action": {
     "default_popup": "popup.html",
@@ -25,7 +29,7 @@
     }
   },
   "web_accessible_resources": [{
-    "resources": ["llm-analyzer.js", ".env"],
+    "resources": ["dist/*"],
     "matches": ["<all_urls>"]
   }]
 }
