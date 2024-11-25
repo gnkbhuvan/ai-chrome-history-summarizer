@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Advanced Timesheet Tracker",
+  "name": "ChronoLens AI - Smart Browser Activity Tracker",
   "version": "1.0",
-  "description": "Detailed 24-hour browsing analysis with AI insights",
+  "description": "AI-powered browser activity tracking and timesheet generation. Perfect for professionals and teams to track work activities and generate detailed timesheets automatically.",
   "permissions": [
     "history",
     "tabs",

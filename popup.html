@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>Chrome History Summarizer</title>
+  <title>ChronoLens AI</title>
   <style>
     body {
       width: 600px;
@@ -29,9 +29,23 @@
     }
 
     .title {
-      font-size: 20px;
+      font-size: 24px;
       color: #2c3e50;
       margin: 0;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .title-icon {
+      color: #4CAF50;
+      font-size: 24px;
+    }
+
+    .subtitle {
+      font-size: 14px;
+      color: #666;
+      margin-top: 5px;
     }
 
     .button-group {
@@ -40,12 +54,15 @@
     }
 
     button {
-      padding: 8px 16px;
+      padding: 10px 20px;
       border: none;
       border-radius: 4px;
       cursor: pointer;
       font-size: 14px;
       transition: all 0.3s ease;
+      display: flex;
+      align-items: center;
+      gap: 8px;
     }
 
     .primary-btn {
@@ -139,11 +156,18 @@
       border-radius: 4px 4px 0 0;
     }
   </style>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
 </head>
 <body>
   <div class="container">
     <div class="header">
-      <h1 class="title">Chrome History Summarizer</h1>
+      <div>
+        <h1 class="title">
+          <i class="fas fa-clock title-icon"></i>
+          ChronoLens AI
+        </h1>
+        <div class="subtitle">Smart Browser Activity Tracker</div>
+      </div>
       <div class="button-group">
         <button id="copyBtn" class="secondary-btn">
           <i class="fas fa-copy"></i> Copy
@@ -155,8 +179,12 @@
     </div>
 
     <div class="button-group">
-      <button id="summarizeBtn" class="primary-btn">Summarize Last 24 Hours</button>
-      <button id="exportBtn" class="secondary-btn">Export History to CSV</button>
+      <button id="summarizeBtn" class="primary-btn">
+        <i class="fas fa-magic"></i> Generate Smart Summary
+      </button>
+      <button id="exportBtn" class="secondary-btn">
+        <i class="fas fa-file-export"></i> Export History to CSV
+      </button>
     </div>
 
     <div id="loading" class="loading">Analyzing your browsing history...</div>
