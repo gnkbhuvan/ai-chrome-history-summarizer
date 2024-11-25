@@ -260,7 +260,7 @@ class TimesheetTracker {
         throw new Error('API key not loaded. Please check extension configuration.');
       }
 
-      console.log('Sending request to Anthropic API with key:', this.ANTHROPIC_API_KEY.substring(0, 5) + '...');
+      console.log('Sending request to Anthropic API');
 
       const formattedActivities = activities.map(activity => {
         const startTime = new Date(activity.startTime);
@@ -315,8 +315,6 @@ class TimesheetTracker {
             ${JSON.stringify(formattedActivities, null, 2)}
 
             <prompt> <role> You are a precise time-tracking analyzer and timesheet generator, specifically designed to process and format web browsing activity data into structured, professional timesheet entries. </role>
-            javascript
-
 
             <input_parameters>
                 <parameter name="total_tracked_time">Total duration of tracked activities</parameter>
@@ -385,10 +383,7 @@ class TimesheetTracker {
                 <note>Do not round or adjust times</note>
                 <note>Preserve all ticket numbers and reference IDs found in URLs</note>
             </additional_notes>
-            </prompt>
-            
-            
-            `
+            </prompt>`
           }]
         })
       });
@@ -402,11 +397,23 @@ class TimesheetTracker {
       const data = await response.json();
       console.log('API Response:', data);
       
-      if (data.content && data.content[0] && data.content[0].text) {
-        return data.content[0].text;
-      } else {
+      if (!data.content || !Array.isArray(data.content) || data.content.length === 0) {
         throw new Error('Invalid API response format');
       }
+
+      const content = data.content[0].text || '';
+      if (!content) {
+        throw new Error('Empty response from API');
+      }
+
+      // Format the content for display
+      const formattedContent = content
+        .split('\n')
+        .map(line => line.trim())
+        .filter(line => line)
+        .join('\n');
+
+      return formattedContent;
     } catch (error) {
       console.error('LLM Analysis Error:', error);
       throw new Error(`Unable to generate insights: ${error.message}`);
@@ -473,7 +480,9 @@ const timesheetTracker = new TimesheetTracker();
 
 // Listen for export and summarize requests
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-  if (request.action === 'exportTimesheet') {
+  console.log('Received message:', request);
+
+  if (request.action === 'export') {
     timesheetTracker.exportToCSV()
       .then(downloadId => {
         sendResponse({ status: 'success', downloadId });
@@ -485,18 +494,19 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return true; // Allow async response
   }
   
-  if (request.action === 'summarizeTimesheet') {
+  if (request.action === 'summarize') {
     timesheetTracker.summarizeTimesheet()
       .then(summary => {
+        console.log('Summary generated:', summary);
         if (summary) {
-          sendResponse({ status: 'success', summary });
+          sendResponse(summary);
         } else {
-          sendResponse({ status: 'error', error: 'Failed to generate summary' });
+          sendResponse({ error: 'Failed to generate summary' });
         }
       })
       .catch(error => {
         console.error('Summarize failed:', error);
-        sendResponse({ status: 'error', error: error.message });
+        sendResponse({ error: error.message });
       });
     return true; // Allow async response
   }

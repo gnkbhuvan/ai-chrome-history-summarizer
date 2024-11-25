@@ -1,64 +1,168 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>Advanced Timesheet Tracker</title>
+  <title>Chrome History Summarizer</title>
   <style>
-    body { 
-      width: 450px; 
-      padding: 15px; 
-      font-family: Arial, sans-serif; 
-      background-color: #f4f4f4;
+    body {
+      width: 600px;
+      min-height: 400px;
+      padding: 20px;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background-color: #f8f9fa;
+      margin: 0;
     }
+
     .container {
       background-color: white;
       border-radius: 8px;
       box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-      padding: 15px;
+      padding: 20px;
     }
-    h2 {
-      color: #333;
-      text-align: center;
+
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 20px;
+      padding-bottom: 15px;
+      border-bottom: 1px solid #eee;
     }
-    button { 
-      width: 100%; 
-      margin: 10px 0; 
-      padding: 12px; 
+
+    .title {
+      font-size: 20px;
+      color: #2c3e50;
+      margin: 0;
+    }
+
+    .button-group {
+      display: flex;
+      gap: 10px;
+    }
+
+    button {
+      padding: 8px 16px;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+      transition: all 0.3s ease;
+    }
+
+    .primary-btn {
       background-color: #4CAF50;
       color: white;
-      border: none;
-      border-radius: 6px;
-      font-size: 16px;
-      cursor: pointer;
-      transition: background-color 0.3s ease;
     }
+
+    .secondary-btn {
+      background-color: #607d8b;
+      color: white;
+    }
+
+    .clear-btn {
+      background-color: #f44336;
+      color: white;
+    }
+
     button:hover {
-      background-color: #45a049;
+      opacity: 0.9;
+      transform: translateY(-1px);
     }
-    #summary {
-      margin-top: 15px;
-      max-height: 400px;
-      overflow-y: auto;
-      white-space: pre-wrap;
-      background-color: #f9f9f9;
-      border: 1px solid #ddd;
+
+    button:disabled {
+      background-color: #cccccc;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    #output {
+      margin-top: 20px;
       padding: 15px;
-      border-radius: 6px;
-      line-height: 1.6;
+      background-color: #f8f9fa;
+      border-radius: 4px;
+      white-space: pre-wrap;
+      font-family: monospace;
+      max-height: 500px;
+      overflow-y: auto;
+      border: 1px solid #eee;
     }
-    #loading {
-      text-align: center;
-      color: #666;
+
+    .loading {
       display: none;
+      text-align: center;
+      margin: 20px 0;
+      color: #666;
+    }
+
+    .loading::after {
+      content: '';
+      display: inline-block;
+      width: 20px;
+      height: 20px;
+      margin-left: 10px;
+      border: 2px solid #f3f3f3;
+      border-top: 2px solid #3498db;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+
+    .success-message {
+      color: #4CAF50;
+      margin-top: 10px;
+      text-align: center;
+      display: none;
+    }
+
+    .error-message {
+      color: #f44336;
+      margin-top: 10px;
+      text-align: center;
+      display: none;
+    }
+
+    .timesheet-entry {
+      display: grid;
+      grid-template-columns: 100px 200px 1fr 80px;
+      gap: 10px;
+      padding: 8px;
+      border-bottom: 1px solid #eee;
+    }
+
+    .timesheet-header {
+      font-weight: bold;
+      background-color: #f1f1f1;
+      padding: 10px 8px;
+      border-radius: 4px 4px 0 0;
     }
   </style>
 </head>
 <body>
   <div class="container">
-    <h2>24-Hour Timesheet Insights</h2>
-    <button id="exportBtn">Export Timesheet to CSV</button>
-    <button id="summarizeBtn">Generate AI-Powered Breakdown</button>
-    <div id="loading">Generating insights... Please wait.</div>
-    <div id="summary"></div>
+    <div class="header">
+      <h1 class="title">Chrome History Summarizer</h1>
+      <div class="button-group">
+        <button id="copyBtn" class="secondary-btn">
+          <i class="fas fa-copy"></i> Copy
+        </button>
+        <button id="clearBtn" class="clear-btn">
+          <i class="fas fa-trash"></i> Clear
+        </button>
+      </div>
+    </div>
+
+    <div class="button-group">
+      <button id="summarizeBtn" class="primary-btn">Summarize Last 24 Hours</button>
+      <button id="exportBtn" class="secondary-btn">Export History to CSV</button>
+    </div>
+
+    <div id="loading" class="loading">Analyzing your browsing history...</div>
+    <div id="successMessage" class="success-message"></div>
+    <div id="errorMessage" class="error-message"></div>
+    <div id="output"></div>
   </div>
   <script src="popup.js"></script>
 </body>
