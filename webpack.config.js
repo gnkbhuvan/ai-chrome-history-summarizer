@@ -1,5 +1,6 @@
 const path = require('path');
 const Dotenv = require('dotenv-webpack');
+const webpack = require('webpack');
 
 module.exports = {
   mode: 'production',
@@ -12,12 +13,6 @@ module.exports = {
     path: path.resolve(__dirname, 'dist'),
     clean: true
   },
-  plugins: [
-    new Dotenv({
-      systemvars: true,
-      safe: true
-    })
-  ],
   module: {
     rules: [
       {
@@ -26,16 +21,39 @@ module.exports = {
         use: {
           loader: 'babel-loader',
           options: {
-            presets: ['@babel/preset-env']
+            presets: [
+              ['@babel/preset-env', {
+                targets: {
+                  chrome: "88"
+                }
+              }]
+            ]
           }
         }
       }
     ]
   },
+  plugins: [
+    new Dotenv({
+      systemvars: true,
+      safe: true
+    }),
+    new webpack.ProvidePlugin({
+      process: 'process/browser',
+      Buffer: ['buffer', 'Buffer']
+    })
+  ],
   resolve: {
-    extensions: ['.js']
+    fallback: {
+      "crypto": require.resolve("crypto-browserify"),
+      "stream": require.resolve("stream-browserify"),
+      "buffer": require.resolve("buffer/"),
+      "process": require.resolve("process/browser")
+    }
   },
   optimization: {
-    minimize: false
+    minimize: true,
+    moduleIds: 'deterministic',
+    chunkIds: 'deterministic'
   }
 };

@@ -1,24 +1,24 @@
 {
   "manifest_version": 3,
-  "name": "ChronoLens AI - Smart Browser Activity Tracker",
-  "version": "1.0",
-  "description": "AI-powered browser activity tracking and timesheet generation. Perfect for professionals and teams to track work activities and generate detailed timesheets automatically.",
+  "name": "ChronoLens AI",
+  "version": "1.0.0",
+  "description": "AI-powered browser history analyzer",
   "permissions": [
     "history",
     "tabs",
     "storage",
-    "downloads",
-    "activeTab"
+    "activeTab",
+    "downloads"
   ],
   "host_permissions": [
-    "https://api.anthropic.com/*"
+    "https://bedrock-runtime.us-west-2.amazonaws.com/*"
   ],
   "content_security_policy": {
-    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'; connect-src 'self' https://api.anthropic.com;"
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'",
+    "sandbox": "sandbox allow-scripts allow-forms allow-popups allow-modals; script-src 'self'"
   },
   "background": {
-    "service_worker": "dist/background.bundle.js",
-    "type": "module"
+    "service_worker": "dist/background.bundle.js"
   },
   "action": {
     "default_popup": "popup.html",

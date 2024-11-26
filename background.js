@@ -1,65 +1,200 @@
+// Register service worker
+self.addEventListener('install', (event) => {
+  console.log('Service Worker installing...');
+  self.skipWaiting();
+});
+
+self.addEventListener('activate', (event) => {
+  console.log('Service Worker activating...');
+  event.waitUntil(clients.claim());
+});
+
+import { BedrockRuntimeClient, InvokeModelCommand } from "@aws-sdk/client-bedrock-runtime";
+
 class TimesheetTracker {
   constructor() {
     console.log('TimesheetTracker initialized');
     this.currentTab = null;
     this.activityLog = [];
-    this.setupListeners();
-    this.loadPreviousActivities();
-    this.loadHistoryData();
-    this.loadApiKey();
+    
+    // Use more secure environment variable handling
+    this.AWS_ACCESS_KEY = process.env.AWS_ACCESS_KEY || '';
+    this.AWS_SECRET_KEY = process.env.AWS_SECRET_KEY || '';
+    this.AWS_REGION = process.env.AWS_REGION || 'us-west-2';
+    this.bedrockClient = null;
+    
+    if (!this.AWS_ACCESS_KEY || !this.AWS_SECRET_KEY) {
+      console.error('AWS credentials not found in environment variables');
+    }
+    
+    // Initialize services
+    this.initializeServices();
+  }
+
+  async initializeServices() {
+    try {
+      await this.initializeAWS();
+      await this.setupListeners();
+      await this.loadPreviousActivities();
+      await this.loadHistoryData();
+      console.log('All services initialized successfully');
+    } catch (error) {
+      console.error('Error during service initialization:', error);
+    }
+  }
+
+  async initializeAWS() {
+    try {
+      const awsConfig = {
+        region: this.AWS_REGION,
+        credentials: {
+          accessKeyId: this.AWS_ACCESS_KEY,
+          secretAccessKey: this.AWS_SECRET_KEY
+        }
+      };
+
+      this.bedrockClient = new BedrockRuntimeClient(awsConfig);
+      
+      // Verify credentials without eval
+      const credentials = await this.bedrockClient.config.credentials();
+      if (!credentials) {
+        throw new Error('Failed to load AWS credentials');
+      }
+    } catch (error) {
+      console.error('AWS Bedrock initialization failed:', error);
+      throw error;
+    }
   }
 
   setupListeners() {
-    chrome.tabs.onActivated.addListener(this.handleTabChange.bind(this));
-    chrome.tabs.onUpdated.addListener(this.handleTabUpdate.bind(this));
-  }
-
-  loadPreviousActivities() {
-    chrome.storage.local.get(['timesheetActivities'], (result) => {
-      if (result.timesheetActivities) {
-        const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
-        this.activityLog = result.timesheetActivities.filter(entry => 
-          new Date(entry.startTime) > twentyFourHoursAgo
-        );
-        console.log('Loaded activities:', result.timesheetActivities);
-      }
-    });
-  }
-
-  async handleTabChange(activeInfo) {
     try {
-      const tab = await this.getTab(activeInfo.tabId);
-      this.processTabChange(tab);
+      // Bind event handlers to preserve 'this' context
+      this.handleTabChange = this.handleTabChange.bind(this);
+      this.handleTabUpdate = this.handleTabUpdate.bind(this);
+      
+      chrome.tabs.onActivated.addListener(this.handleTabChange);
+      chrome.tabs.onUpdated.addListener(this.handleTabUpdate);
+      console.log('Chrome event listeners set up successfully');
     } catch (error) {
-      console.error('Error handling tab change:', error);
+      console.error('Error setting up Chrome listeners:', error);
+      throw error;
     }
   }
 
-  async handleTabUpdate(tabId, changeInfo, tab) {
+  handleTabChange = async (activeInfo) => {
+    try {
+      const tab = await chrome.tabs.get(activeInfo.tabId);
+      await this.processTabChange(tab);
+    } catch (error) {
+      console.error('Error in handleTabChange:', error);
+    }
+  }
+
+  handleTabUpdate = async (tabId, changeInfo, tab) => {
     if (changeInfo.status === 'complete') {
-      this.processTabChange(tab);
+      try {
+        await this.processTabChange(tab);
+      } catch (error) {
+        console.error('Error in handleTabUpdate:', error);
+      }
     }
   }
 
-  getTab(tabId) {
-    return new Promise((resolve, reject) => {
-      chrome.tabs.get(tabId, (tab) => {
-        if (chrome.runtime.lastError) {
-          reject(chrome.runtime.lastError);
-        } else {
-          resolve(tab);
-        }
+  async loadHistoryData() {
+    console.log('Loading history data...');
+    try {
+      const millisecondsPerDay = 1000 * 60 * 60 * 24;
+      const oneDayAgo = new Date().getTime() - millisecondsPerDay;
+      
+      return new Promise((resolve) => {
+        chrome.history.search({
+          text: '',              // Return all history items
+          startTime: oneDayAgo,  // Return items from last 24 hours
+          maxResults: 10000      // Get a large number of results
+        }, async (historyItems) => {
+          console.log('Raw history items:', historyItems?.length || 0);
+          
+          if (!historyItems || historyItems.length === 0) {
+            console.log('No history items found');
+            this.activityLog = [];
+            resolve();
+            return;
+          }
+
+          // Process history items
+          const processedActivities = [];
+          
+          for (const item of historyItems) {
+            try {
+              if (!item.url || item.url.startsWith('chrome://') || item.url.startsWith('chrome-extension://')) {
+                continue;
+              }
+
+              // Get all visits for this URL
+              const visits = await new Promise(resolve => {
+                chrome.history.getVisits({ url: item.url }, resolve);
+              });
+
+              if (visits && visits.length > 0) {
+                const urlObj = new URL(item.url);
+                visits.sort((a, b) => a.visitTime - b.visitTime);
+
+                for (let i = 0; i < visits.length; i++) {
+                  const visit = visits[i];
+                  const nextVisit = visits[i + 1];
+                  const visitTime = new Date(visit.visitTime);
+                  
+                  if (visit.visitTime >= oneDayAgo) {
+                    const activity = {
+                      date: visitTime.toLocaleDateString(),
+                      time: visitTime.toLocaleTimeString(),
+                      domain: urlObj.hostname,
+                      title: item.title || urlObj.hostname,
+                      startTime: visitTime.toISOString(),
+                      endTime: nextVisit ? new Date(nextVisit.visitTime).toISOString() : new Date().toISOString(),
+                      duration: nextVisit ? 
+                        Math.min(30, (nextVisit.visitTime - visit.visitTime) / 1000 / 60) : 
+                        Math.min(30, (Date.now() - visit.visitTime) / 1000 / 60),
+                      url: item.url,
+                      visitCount: item.visitCount || 1,
+                      typedCount: item.typedCount || 0
+                    };
+                    
+                    processedActivities.push(activity);
+                  }
+                }
+              }
+            } catch (error) {
+              console.error('Error processing history item:', error, item);
+            }
+          }
+
+          console.log('Processed activities:', processedActivities.length);
+
+          // Sort by timestamp (newest first)
+          processedActivities.sort((a, b) => 
+            new Date(b.startTime) - new Date(a.startTime)
+          );
+
+          this.activityLog = processedActivities;
+          await this.saveActivities();
+          
+          console.log(`Saved ${processedActivities.length} activities to storage`);
+          resolve();
+        });
       });
-    });
+    } catch (error) {
+      console.error('Error in loadHistoryData:', error);
+      this.activityLog = [];
+    }
   }
 
-  processTabChange(tab) {
+  async processTabChange(tab) {
     if (!tab.url || tab.url.startsWith('chrome://') || tab.url.startsWith('chrome-extension://')) {
       return;
     }
 
     const now = new Date();
-    const twentyFourHoursAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
     const urlObj = new URL(tab.url);
     const domain = urlObj.hostname;
 
@@ -73,14 +208,10 @@ class TimesheetTracker {
       }
     }
 
-    // Remove old entries
-    this.activityLog = this.activityLog.filter(entry => 
-      new Date(entry.startTime) > twentyFourHoursAgo
-    );
-
     // Start new activity entry
     const newEntry = {
-      date: now.toISOString().split('T')[0],
+      date: now.toLocaleDateString(),
+      time: now.toLocaleTimeString(),
       domain: domain,
       title: tab.title || domain,
       startTime: now.toISOString(),
@@ -89,158 +220,478 @@ class TimesheetTracker {
       url: tab.url
     };
 
-    this.activityLog.push(newEntry);
-    console.log('Adding new activity:', newEntry);
-
+    this.activityLog.unshift(newEntry);
     this.currentTab = tab;
-    this.saveActivityLog();
+    await this.saveActivities();
   }
 
-  saveActivityLog() {
-    chrome.storage.local.set({ 
-      timesheetActivities: this.activityLog 
-    });
-  }
-
-  exportToCSV() {
-    return new Promise((resolve, reject) => {
-      try {
-        // Ensure final entry is closed
-        if (this.currentTab) {
-          const lastEntry = this.activityLog[this.activityLog.length - 1];
-          if (lastEntry && !lastEntry.endTime) {
-            lastEntry.endTime = new Date();
-            lastEntry.duration = (lastEntry.endTime - new Date(lastEntry.startTime)) / 1000 / 60;
-          }
-        }
-
-        const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
-        const recentActivities = this.activityLog.filter(entry => 
-          new Date(entry.startTime) > twentyFourHoursAgo
-        );
-
-        if (recentActivities.length === 0) {
-          throw new Error('No activities found in the last 24 hours');
-        }
-
-        // Create CSV content
-        const csvRows = [];
-        csvRows.push(['Date', 'Time', 'Duration (minutes)', 'Title', 'Domain']);
-
-        recentActivities.forEach(entry => {
-          const date = new Date(entry.startTime);
-          csvRows.push([
-            date.toLocaleDateString(),
-            date.toLocaleTimeString('en-US', {
-              hour: 'numeric',
-              minute: '2-digit',
-              hour12: true
-            }),
-            entry.duration.toFixed(2),
-            entry.title,
-            entry.domain
-          ]);
-        });
-
-        // Convert to CSV string with proper escaping
-        const csvContent = csvRows.map(row => 
-          row.map(cell => 
-            typeof cell === 'string' ? 
-              '"' + cell.replace(/"/g, '""') + '"' : 
-              cell
-          ).join(',')
-        ).join('\n');
-
-        // Create downloadable link
-        const filename = `timesheet_${new Date().toISOString().split('T')[0]}.csv`;
-        const csvData = new TextEncoder().encode(csvContent);
-        const csvArray = Array.from(csvData);
-        const csvString = csvArray.map(byte => String.fromCharCode(byte)).join('');
-        const base64 = btoa(csvString);
-        const dataUrl = `data:text/csv;base64,${base64}`;
-
-        chrome.downloads.download({
-          url: dataUrl,
-          filename: filename,
-          saveAs: true
-        }, (downloadId) => {
-          if (chrome.runtime.lastError) {
-            reject(new Error(chrome.runtime.lastError.message));
-          } else {
-            resolve(downloadId);
-          }
-        });
-      } catch (error) {
-        console.error('Export failed:', error);
-        reject(error);
+  async saveActivities() {
+    return new Promise((resolve) => {
+      // Keep only last 10000 activities to prevent storage issues
+      if (this.activityLog.length > 10000) {
+        this.activityLog = this.activityLog.slice(0, 10000);
       }
+
+      chrome.storage.local.set({
+        'timesheetActivities': this.activityLog
+      }, () => {
+        if (chrome.runtime.lastError) {
+          console.error('Error saving activities:', chrome.runtime.lastError);
+        }
+        resolve();
+      });
     });
+  }
+
+  async loadPreviousActivities() {
+    return new Promise((resolve) => {
+      chrome.storage.local.get(['timesheetActivities'], (result) => {
+        if (result.timesheetActivities) {
+          this.activityLog = result.timesheetActivities;
+          console.log('Loaded', this.activityLog.length, 'activities from storage');
+        }
+        resolve();
+      });
+    });
+  }
+
+  async getFilteredActivities() {
+    try {
+      // Ensure we have activities
+      if (!this.activityLog || this.activityLog.length === 0) {
+        await this.loadHistoryData();
+      }
+
+      // Filter last 24 hours
+      const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+      const recentActivities = this.activityLog.filter(entry => 
+        new Date(entry.startTime) > twentyFourHoursAgo
+      );
+
+      // Group activities by domain
+      const domainGroups = {};
+      recentActivities.forEach(activity => {
+        if (!activity.domain) return;
+
+        if (!domainGroups[activity.domain]) {
+          domainGroups[activity.domain] = {
+            domain: activity.domain,
+            totalTime: 0,
+            visits: 0,
+            activities: [],
+            startTime: activity.startTime,
+            endTime: activity.endTime
+          };
+        }
+
+        const domain = domainGroups[activity.domain];
+        domain.activities.push(activity);
+        domain.visits++;
+        domain.totalTime += activity.duration || 0;
+
+        // Update time range
+        if (new Date(activity.startTime) < new Date(domain.startTime)) {
+          domain.startTime = activity.startTime;
+        }
+        if (new Date(activity.endTime) > new Date(domain.endTime)) {
+          domain.endTime = activity.endTime;
+        }
+      });
+
+      // Convert to array and sort by total time
+      return Object.values(domainGroups)
+        .map(domain => ({
+          ...domain,
+          totalTime: Math.round(domain.totalTime * 100) / 100,
+          formattedDuration: this.formatDuration(domain.totalTime)
+        }))
+        .sort((a, b) => b.totalTime - a.totalTime);
+    } catch (error) {
+      console.error('Error getting filtered activities:', error);
+      throw error;
+    }
   }
 
   async summarizeTimesheet() {
-    return new Promise(async (resolve, reject) => {
-      try {
-        // Ensure final entry is closed with accurate duration
-        if (this.currentTab) {
-          const lastEntry = this.activityLog[this.activityLog.length - 1];
-          if (lastEntry && !lastEntry.endTime) {
-            const now = new Date();
-            lastEntry.endTime = now.toISOString();
-            const startTime = new Date(lastEntry.startTime);
-            lastEntry.duration = Math.max(0, (now.getTime() - startTime.getTime()) / 1000 / 60);
-          }
+    try {
+      console.log('Starting timesheet summarization...');
+      
+      const sortedActivities = await this.getFilteredActivities();
+      console.log('Sorted activities:', sortedActivities.length);
+
+      if (sortedActivities.length === 0) {
+        return { error: 'No valid browsing activities found to summarize.' };
+      }
+
+      const summary = await this.getLLMDetailedBreakdown(sortedActivities, sortedActivities.reduce((total, activity) => total + activity.totalTime, 0));
+      return summary; // Return just the summary text
+    } catch (error) {
+      console.error('Error in summarizeTimesheet:', error);
+      return { error: error.message };
+    }
+  }
+
+  async getLLMDetailedBreakdown(activities, totalTime) {
+    try {
+      if (!this.bedrockClient) {
+        throw new Error('AWS Bedrock client not initialized. Please check configuration.');
+      }
+
+      if (!activities || activities.length === 0) {
+        throw new Error('No activities provided for analysis');
+      }
+
+      console.log('Sending request to AWS Bedrock...');
+
+      const formattedActivities = activities.map(activity => {
+        if (!activity || !activity.startTime) {
+          console.warn('Invalid activity entry detected:', activity);
+          return null;
         }
 
-        const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
-        const recentActivities = this.activityLog.filter(entry => 
-          new Date(entry.startTime) > twentyFourHoursAgo
-        );
+        try {
+          const startTime = new Date(activity.startTime);
+          const endTime = activity.endTime ? new Date(activity.endTime) : new Date();
+          
+          return {
+            domain: activity.domain || 'unknown',
+            title: activity.title || 'Untitled',
+            url: activity.url || '',
+            timeRange: `${startTime.toLocaleTimeString('en-US', {
+              hour: '2-digit',
+              minute: '2-digit',
+              hour12: true,
+              timeZoneName: 'short'
+            })} - ${endTime.toLocaleTimeString('en-US', {
+              hour: '2-digit',
+              minute: '2-digit',
+              hour12: true,
+              timeZoneName: 'short'
+            })}`,
+            date: startTime.toLocaleDateString('en-US', {
+              weekday: 'short',
+              year: 'numeric',
+              month: 'short',
+              day: 'numeric'
+            }),
+            duration: activity.formattedDuration || '0:00'
+          };
+        } catch (error) {
+          console.error('Error formatting activity:', error);
+          return null;
+        }
+      }).filter(Boolean);
 
-        // Group activities by domain and title
-        const uniqueActivitiesMap = new Map();
+      if (formattedActivities.length === 0) {
+        throw new Error('No valid activities to analyze after formatting');
+      }
 
-        recentActivities.forEach(entry => {
-          const key = `${entry.domain}-${entry.title}`;
-          if (!uniqueActivitiesMap.has(key)) {
-            uniqueActivitiesMap.set(key, {
-              domain: entry.domain,
-              title: entry.title,
-              url: entry.url,
-              duration: entry.duration,
-              startTime: entry.startTime,
-              endTime: entry.endTime
-            });
-          } else {
-            // Add duration to existing entry
-            const existing = uniqueActivitiesMap.get(key);
-            existing.duration += entry.duration;
-            // Update time range
-            if (new Date(entry.startTime) < new Date(existing.startTime)) {
-              existing.startTime = entry.startTime;
-            }
-            if (entry.endTime && (!existing.endTime || new Date(entry.endTime) > new Date(existing.endTime))) {
-              existing.endTime = entry.endTime;
-            }
-          }
-        });
+      console.log('Formatted activities for AI:', formattedActivities);
 
-        // Convert Map to array and sort by duration
-        const uniqueActivities = Array.from(uniqueActivitiesMap.values())
-          .map(activity => ({
-            ...activity,
-            duration: Math.round(activity.duration * 100) / 100, // Round to 2 decimal places
-            formattedDuration: this.formatDuration(activity.duration)
-          }))
-          .sort((a, b) => b.duration - a.duration);
+      const prompt = `
+      <input>
+      ${JSON.stringify(formattedActivities, null, 2)}
+      </input>
 
-        // Get LLM-powered detailed breakdown
-        const llmSummary = await this.getLLMDetailedBreakdown(uniqueActivities);
-        resolve(llmSummary);
+      <prompt>
+      <role>You are a precise time-tracking analyzer and timesheet generator, specifically designed to process and format web browsing activity data into structured, professional timesheet entries.</role>
+
+      <key_responsibilities>
+          <task>Parse and analyze web browsing data with exact timestamp preservation</task>
+          <task>Generate a clean, date-grouped timesheet format</task>
+          <task>Group and summarize related activities</task>
+          <task>Calculate accurate time durations</task>
+      </key_responsibilities>
+
+      <output_format>
+      1. Start with the date header:
+      [YYYY-MM-DD]
+
+      2. Follow with column headers:
+      Time    Description 
+
+      3. Then data rows:
+      HH:MM AM/PM - HH:MM AM/PM    Activity Description 
+
+      4. When the date changes, add a new date header.
+
+      5. Example format:
+      [2024-03-20]
+      Time    Description   
+      9:00 AM - 10:30 AM    Development Work on Project X - Extended description with details about specific tasks and achievements   
+      10:45 AM - 11:15 AM    Code Review Session - Reviewing pull requests and providing feedback    
+
+      [2024-03-21]
+      Time    Description 
+      9:30 AM - 10:00 AM    Team Standup Meeting - Daily sync with development team    
+
+      6. Rules:
+      - Group entries by date with clear date headers
+      - Use consistent spacing between columns
+      - Include detailed descriptions without truncation
+      - Use 24-hour format for durations
+      - Keep descriptions informative and complete
+      </output_format>
+
+      <instructions>
+      1. Process the provided browsing activities
+      2. Group activities by date
+      3. Format the output exactly as shown above
+      4. Use proper date headers in [YYYY-MM-DD] format
+      5. Use 12-hour time format with AM/PM for Time column
+      6. Use 24-hour format (HH:MM) for Duration column
+      7. Include complete, detailed descriptions
+      8. Maintain proper spacing between columns
+      </instructions>
+      </prompt>`;
+
+      try {
+        const response = await this.bedrockClient.send(new InvokeModelCommand({
+          modelId: "anthropic.claude-3-5-haiku-20241022-v1:0",
+          contentType: "application/json",
+          accept: "application/json",
+          body: JSON.stringify({
+            anthropic_version: "bedrock-2023-05-31",
+            max_tokens: 8192,
+            messages: [{
+              role: "user",
+              content: prompt
+            }],
+            temperature: 0.7,
+            top_p: 0.9
+          })
+        }));
+
+        if (!response || !response.body) {
+          console.error('Empty response from Bedrock');
+          throw new Error('Empty response received from Bedrock');
+        }
+
+        // Log raw response for debugging
+        const rawResponse = new TextDecoder().decode(response.body);
+        console.log('Raw Bedrock response:', rawResponse);
+
+        // Parse the response body
+        let responseBody;
+        try {
+          responseBody = JSON.parse(rawResponse);
+          console.log('Parsed response body:', JSON.stringify(responseBody, null, 2));
+        } catch (error) {
+          console.error('Failed to parse response:', error);
+          throw new Error('Failed to parse Bedrock response: ' + error.message);
+        }
+
+        // Handle different response formats
+        let content;
+        if (responseBody.content) {
+          content = responseBody.content;
+        } else if (responseBody.messages?.[0]?.content) {
+          content = responseBody.messages[0].content;
+        } else if (responseBody.completion) {
+          content = responseBody.completion;
+        } else {
+          console.error('Unexpected response structure:', responseBody);
+          throw new Error('Unexpected response structure from Bedrock');
+        }
+
+        // Extract text content
+        let text;
+        if (Array.isArray(content)) {
+          // Handle array of content blocks (Claude 3 format)
+          text = content
+            .filter(block => block.type === 'text')
+            .map(block => block.text)
+            .join('\n');
+        } else if (typeof content === 'string') {
+          // Handle direct string content
+          text = content;
+        } else if (content?.text) {
+          // Handle object with text property
+          text = content.text;
+        } else {
+          console.error('Unable to extract text from content:', content);
+          throw new Error('Unable to extract text from Bedrock response');
+        }
+
+        // Validate and clean the text
+        if (!text || typeof text !== 'string') {
+          console.error('Invalid text content:', text);
+          throw new Error('Invalid text content in Bedrock response');
+        }
+
+        // Clean and format the text
+        const cleanedText = text.trim()
+          .replace(/\\n/g, '\n')
+          .replace(/\\t/g, '\t')
+          .replace(/\\"/g, '"')
+          .replace(/\\/g, '')
+          .replace(/\r\n/g, '\n')
+          .replace(/\r/g, '\n');
+
+        console.log('Final formatted text:', cleanedText);
+        return cleanedText;
+
       } catch (error) {
-        console.error('Summarize failed:', error);
-        reject(error);
+        console.error('Bedrock API Error:', error);
+        throw new Error(`Bedrock API Error: ${error.message}`);
+      }
+    } catch (error) {
+      console.error('LLM Analysis Error:', error);
+      return `Unable to generate timesheet summary. Error: ${error.message}\n\nPlease try again later or contact support if the issue persists.`;
+    }
+  }
+
+  // Helper method to safely format text
+  _formatText(text) {
+    if (typeof text !== 'string') {
+      console.warn('Invalid text format:', text);
+      return String(text || '');
+    }
+    return text.trim()
+      .replace(/\\n/g, '\n')
+      .replace(/\\t/g, '\t')
+      .replace(/\\"/g, '"')
+      .replace(/\\/g, '');
+  }
+
+  async exportToCSV() {
+    try {
+      const endTime = Date.now();
+      const startTime = endTime - (24 * 60 * 60 * 1000); // Last 24 hours
+
+      const historyItems = await new Promise((resolve) => {
+        chrome.history.search({
+          text: '',
+          startTime: startTime,
+          endTime: endTime,
+          maxResults: 10000
+        }, resolve);
+      });
+
+      if (historyItems.length === 0) {
+        throw new Error('No history items found to export');
+      }
+
+      // Create CSV rows with individual entries
+      const csvRows = [
+        ['Date', 'Time', 'Title', 'Domain', 'URL']
+      ];
+
+      for (const item of historyItems) {
+        try {
+          if (!item.url || item.url.startsWith('chrome://') || item.url.startsWith('chrome-extension://')) {
+            continue;
+          }
+
+          const url = new URL(item.url);
+          const date = new Date(item.lastVisitTime);
+          
+          csvRows.push([
+            date.toLocaleDateString(),
+            date.toLocaleTimeString(),
+            item.title || '[No Title]',
+            url.hostname,
+            item.url
+          ]);
+        } catch (error) {
+          console.error('Error processing history item:', error);
+        }
+      }
+
+      // Create CSV content
+      const csvContent = csvRows.map(row => 
+        row.map(cell => `"${String(cell).replace(/"/g, '""')}"`)
+        .join(',')
+      ).join('\n');
+      
+      // Create blob and data URL
+      const blob = new Blob([csvContent], { type: 'text/csv' });
+      const reader = new FileReader();
+      
+      return new Promise((resolve, reject) => {
+        reader.onload = async () => {
+          try {
+            if (!chrome.downloads) {
+              throw new Error('Downloads API not available');
+            }
+            const downloadId = await chrome.downloads.download({
+              url: reader.result,
+              filename: `browsing-history-${new Date().toISOString().split('T')[0]}.csv`,
+              saveAs: true
+            });
+            resolve(downloadId);
+          } catch (error) {
+            console.error('Download error:', error);
+            reject(error);
+          }
+        };
+        reader.onerror = () => reject(new Error('Failed to read CSV data'));
+        reader.readAsDataURL(blob);
+      });
+    } catch (error) {
+      console.error('Error exporting to CSV:', error);
+      throw error;
+    }
+  }
+
+  async generateTimesheetSummary() {
+    // Ensure final entry is closed with accurate duration
+    if (this.currentTab) {
+      const lastEntry = this.activityLog[this.activityLog.length - 1];
+      if (lastEntry && !lastEntry.endTime) {
+        const now = new Date();
+        lastEntry.endTime = now.toISOString();
+        const startTime = new Date(lastEntry.startTime);
+        lastEntry.duration = Math.max(0, (now.getTime() - startTime.getTime()) / 1000 / 60);
+      }
+    }
+
+    const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const recentActivities = this.activityLog.filter(entry => 
+      new Date(entry.startTime) > twentyFourHoursAgo
+    );
+
+    // Group activities by domain and title
+    const uniqueActivitiesMap = new Map();
+
+    recentActivities.forEach(entry => {
+      const key = `${entry.domain}-${entry.title}`;
+      if (!uniqueActivitiesMap.has(key)) {
+        uniqueActivitiesMap.set(key, {
+          domain: entry.domain,
+          title: entry.title,
+          url: entry.url,
+          duration: entry.duration,
+          startTime: entry.startTime,
+          endTime: entry.endTime
+        });
+      } else {
+        // Add duration to existing entry
+        const existing = uniqueActivitiesMap.get(key);
+        existing.duration += entry.duration;
+        // Update time range
+        if (new Date(entry.startTime) < new Date(existing.startTime)) {
+          existing.startTime = entry.startTime;
+        }
+        if (entry.endTime && (!existing.endTime || new Date(entry.endTime) > new Date(existing.endTime))) {
+          existing.endTime = entry.endTime;
+        }
       }
     });
+
+    // Convert Map to array and sort by duration
+    const uniqueActivities = Array.from(uniqueActivitiesMap.values())
+      .map(activity => ({
+        ...activity,
+        duration: Math.round(activity.duration * 100) / 100, // Round to 2 decimal places
+        formattedDuration: this.formatDuration(activity.duration)
+      }))
+      .sort((a, b) => b.duration - a.duration);
+
+    // Get LLM-powered detailed breakdown
+    const llmSummary = await this.getLLMDetailedBreakdown(uniqueActivities, uniqueActivities.reduce((total, activity) => total + activity.duration, 0));
+    console.log('Summary generated:', llmSummary);
+    return llmSummary;
   }
 
   formatDuration(minutes) {
@@ -250,229 +701,6 @@ class TimesheetTracker {
       return `${hours}h ${remainingMinutes}m`;
     }
     return `${remainingMinutes}m`;
-  }
-
-  async getLLMDetailedBreakdown(activities) {
-    try {
-      if (!this.ANTHROPIC_API_KEY) {
-        throw new Error('API key not loaded. Please check extension configuration.');
-      }
-
-      console.log('Sending request to Anthropic API');
-
-      const formattedActivities = activities.map(activity => {
-        const startTime = new Date(activity.startTime);
-        const endTime = activity.endTime ? new Date(activity.endTime) : new Date();
-        
-        return {
-          domain: activity.domain,
-          title: activity.title,
-          url: activity.url,
-          timeRange: `${startTime.toLocaleTimeString('en-US', {
-            hour: '2-digit',
-            minute: '2-digit',
-            hour12: true,
-            timeZoneName: 'short'
-          })} - ${endTime.toLocaleTimeString('en-US', {
-            hour: '2-digit',
-            minute: '2-digit',
-            hour12: true,
-            timeZoneName: 'short'
-          })}`,
-          date: startTime.toLocaleDateString('en-US', {
-            weekday: 'short',
-            year: 'numeric',
-            month: 'short',
-            day: 'numeric'
-          }),
-          duration: activity.formattedDuration
-        };
-      });
-
-      console.log('Formatted activities for AI:', formattedActivities);
-
-      const response = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': this.ANTHROPIC_API_KEY,
-          'anthropic-version': '2023-06-01',
-          'dangerouslyAllowBrowser': 'true',
-          'anthropic-dangerous-direct-browser-access': 'true'
-        },
-        body: JSON.stringify({
-          model: 'claude-3-5-haiku-20241022',
-          max_tokens: 8192,
-          messages: [{
-            role: 'user',
-            content: `Based on the following browsing activities, create a detailed daily timesheet summary. Use the EXACT times provided in the data, do not modify or adjust them.
-
-            Browsing Activities:
-            ${JSON.stringify(formattedActivities, null, 2)}
-
-            <prompt> <role> You are a precise time-tracking analyzer and timesheet generator, specifically designed to process and format web browsing activity data into structured, professional timesheet entries. </role>
-
-            <input_parameters>
-                <parameter name="browsing_activities">JSON array of web browsing data including timestamps, URLs, and page titles</parameter>
-            </input_parameters>
-
-            <key_responsibilities>
-                <task>Parse and analyze web browsing data with exact timestamp preservation</task>
-                <task>Generate clear, well-formatted timesheet entries</task>
-                <task>Group activities by date and domain</task>
-                <task>Identify key browsing patterns</task>
-            </key_responsibilities>
-
-            <output_format>
-                <format>
-                    ### [Date]
-                    
-                    | Time  | Website     | Domain      | Activity Description |
-                    |-------|-------------|-------------|---------------------|
-                    | HH:MM | example.com | example.com | Detailed activity description that can span multiple lines if needed. Make sure to provide clear and informative descriptions. |
-                </format>
-                <column_specs>
-                    1. Time: Fixed width (HH:MM format)
-                    2. Website: Fixed width (base URL only)
-                    3. Domain: Fixed width (main domain)
-                    4. Description: Flexible width, can wrap to multiple lines
-                </column_specs>
-                <formatting_rules>
-                    1. Keep time format consistent: HH:MM (24-hour)
-                    2. Trim website URLs to main path
-                    3. Keep domain names clean and consistent
-                    4. Write detailed descriptions that explain the activity
-                    5. Allow descriptions to wrap naturally
-                    6. Maintain proper table alignment
-                </formatting_rules>
-            </output_format>
-
-            <special_instructions>
-                1. Group entries by date with clear date headers
-                2. Within each date, maintain chronological order
-                3. Keep time column narrow and fixed width
-                4. Let description column use remaining space
-                5. Format URLs consistently
-                6. Write clear, informative descriptions
-                7. Use proper markdown table syntax
-            </special_instructions>
-
-            Please generate a detailed timesheet summary following these specifications. Make sure each column respects its width constraints and descriptions are properly formatted.</prompt>`
-          }]
-        })
-      });
-
-      if (!response.ok) {
-        const errorData = await response.text();
-        console.error('API Response:', errorData);
-        throw new Error(`API Error: ${response.status} ${response.statusText}`);
-      }
-
-      const data = await response.json();
-      console.log('API Response:', data);
-      
-      if (!data.content || !Array.isArray(data.content) || data.content.length === 0) {
-        throw new Error('Invalid API response format');
-      }
-
-      const content = data.content[0].text || '';
-      if (!content) {
-        throw new Error('Empty response from API');
-      }
-
-      // Format the content for display
-      const formattedContent = content
-        .split('\n')
-        .map(line => line.trim())
-        .filter(line => line)
-        .join('\n');
-
-      return formattedContent;
-    } catch (error) {
-      console.error('LLM Analysis Error:', error);
-      throw new Error(`Unable to generate insights: ${error.message}`);
-    }
-  }
-
-  async loadApiKey() {
-    try {
-      // Use the environment variable loaded by dotenv-webpack
-      this.ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
-      
-      if (!this.ANTHROPIC_API_KEY) {
-        throw new Error('ANTHROPIC_API_KEY not found in environment variables');
-      }
-    } catch (error) {
-      console.error('Error loading API key:', error);
-    }
-  }
-
-  async loadHistoryData() {
-    const endTime = Date.now();
-    const startTime = endTime - (24 * 60 * 60 * 1000);
-    
-    return new Promise((resolve) => {
-      chrome.history.search({
-        text: '',
-        startTime: startTime,
-        endTime: endTime,
-        maxResults: 10000
-      }, async (historyItems) => {
-        this.activityLog = [];
-        
-        for (const item of historyItems) {
-          if (!item.url || item.url.startsWith('chrome://') || item.url.startsWith('chrome-extension://')) {
-            continue;
-          }
-
-          try {
-            const urlObj = new URL(item.url);
-            const domain = urlObj.hostname;
-            
-            // Get all visits for this URL
-            const visits = await new Promise(resolve => {
-              chrome.history.getVisits({ url: item.url }, resolve);
-            });
-
-            if (visits.length > 0) {
-              visits.sort((a, b) => a.visitTime - b.visitTime);
-              
-              for (let i = 0; i < visits.length; i++) {
-                const visit = visits[i];
-                const nextVisit = visits[i + 1];
-                const visitTime = new Date(visit.visitTime);
-                
-                if (visit.visitTime >= startTime && visit.visitTime <= endTime) {
-                  let duration = 1; // Default duration in minutes
-                  
-                  if (nextVisit) {
-                    const timeDiff = (nextVisit.visitTime - visit.visitTime) / 1000 / 60;
-                    duration = timeDiff < 30 ? timeDiff : 1; // Cap at 30 minutes
-                  }
-
-                  this.activityLog.push({
-                    date: visitTime.toLocaleDateString(),
-                    time: visitTime.toLocaleTimeString(),
-                    domain: domain,
-                    title: item.title || domain,
-                    startTime: visitTime.toISOString(),
-                    endTime: nextVisit ? new Date(nextVisit.visitTime).toISOString() : null,
-                    duration: duration,
-                    url: item.url
-                  });
-                }
-              }
-            }
-          } catch (error) {
-            console.error('Error processing history item:', error);
-          }
-        }
-
-        this.activityLog.sort((a, b) => new Date(a.startTime) - new Date(b.startTime));
-        this.saveActivityLog();
-        resolve();
-      });
-    });
   }
 }
 
@@ -484,31 +712,39 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   console.log('Received message:', request);
 
   if (request.action === 'export') {
-    timesheetTracker.exportToCSV()
-      .then(downloadId => {
+    // Use async/await pattern with sendResponse
+    (async () => {
+      try {
+        const downloadId = await timesheetTracker.exportToCSV();
         sendResponse({ status: 'success', downloadId });
-      })
-      .catch(error => {
-        console.error('Export failed:', error);
-        sendResponse({ status: 'error', error: error.message });
-      });
-    return true; // Allow async response
+      } catch (error) {
+        console.error('Export error:', error);
+        sendResponse({ status: 'error', message: error.toString() });
+      }
+    })();
+    return true; // Keep the message channel open for async response
   }
-  
+
   if (request.action === 'summarize') {
-    timesheetTracker.summarizeTimesheet()
-      .then(summary => {
-        console.log('Summary generated:', summary);
-        if (summary) {
-          sendResponse(summary);
-        } else {
-          sendResponse({ error: 'Failed to generate summary' });
+    (async () => {
+      try {
+        const summary = await timesheetTracker.generateTimesheetSummary();
+        if (!summary) {
+          throw new Error('No summary generated');
         }
-      })
-      .catch(error => {
-        console.error('Summarize failed:', error);
-        sendResponse({ error: error.message });
-      });
-    return true; // Allow async response
+        sendResponse({ 
+          status: 'success', 
+          summary: typeof summary === 'string' ? summary : JSON.stringify(summary) 
+        });
+      } catch (error) {
+        console.error('Summarize error:', error);
+        sendResponse({ 
+          status: 'error', 
+          message: error.toString(),
+          details: error.stack 
+        });
+      }
+    })();
+    return true; // Keep the message channel open for async response
   }
 });
