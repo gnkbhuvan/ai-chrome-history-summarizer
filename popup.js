@@ -8,16 +8,44 @@ document.addEventListener('DOMContentLoaded', function() {
   const successMessage = document.getElementById('successMessage');
   const errorMessage = document.getElementById('errorMessage');
   const totalSitesElement = document.getElementById('totalSites');
+  const historyDateInput = document.getElementById('historyDate');
 
-  // Function to update stats
-  function updateStats() {
-    const endTime = Date.now();
-    const startTime = endTime - (24 * 60 * 60 * 1000); // Last 24 hours
+  // Function to format date to yyyy-MM-dd (for input element)
+  function formatDateForInput(date) {
+    return date.toISOString().split('T')[0];
+  }
+
+  // Function to format date to DD-MM-YYYY (for display)
+  function formatDateForDisplay(date) {
+    const day = String(date.getDate()).padStart(2, '0');
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const year = date.getFullYear();
+    return `${day}-${month}-${year}`;
+  }
+
+  // Function to parse DD-MM-YYYY to Date object
+  function parseDateString(dateStr) {
+    const [day, month, year] = dateStr.split('-');
+    return new Date(year, month - 1, day);
+  }
+
+  // Set default date to today
+  const today = new Date();
+  historyDateInput.max = formatDateForInput(today);
+  historyDateInput.value = formatDateForInput(today);
+
+  // Function to update stats for selected date
+  function updateStats(selectedDate) {
+    const date = new Date(selectedDate); // Now works with yyyy-MM-dd format
+    const startTime = new Date(date);
+    startTime.setHours(0, 0, 0, 0);
+    const endTime = new Date(date);
+    endTime.setHours(23, 59, 59, 999);
 
     chrome.history.search({
       text: '',
-      startTime: startTime,
-      endTime: endTime,
+      startTime: startTime.getTime(),
+      endTime: endTime.getTime(),
       maxResults: 10000
     }, async function(historyItems) {
       const domains = new Set();
@@ -43,11 +71,20 @@ document.addEventListener('DOMContentLoaded', function() {
       chrome.storage.local.set({
         'lastStats': {
           totalSites: domains.size,
-          timestamp: Date.now()
+          timestamp: Date.now(),
+          date: selectedDate
         }
       });
     });
   }
+
+  // Update stats when date changes
+  historyDateInput.addEventListener('change', function() {
+    updateStats(this.value);
+  });
+
+  // Initial stats update
+  updateStats(historyDateInput.value);
 
   // Load saved output if it exists
   chrome.storage.local.get(['timesheetOutput'], function(result) {
@@ -61,10 +98,7 @@ document.addEventListener('DOMContentLoaded', function() {
     }
   });
 
-  // Update stats every minute
-  updateStats();
-  setInterval(updateStats, 60000);
-
+  // Function to show loading message
   function showLoading(message = 'Analyzing your browsing history...') {
     loading.textContent = message;
     loading.style.display = 'block';
@@ -72,12 +106,14 @@ document.addEventListener('DOMContentLoaded', function() {
     exportBtn.disabled = true;
   }
 
+  // Function to hide loading message
   function hideLoading() {
     loading.style.display = 'none';
     summarizeBtn.disabled = false;
     exportBtn.disabled = false;
   }
 
+  // Function to show success message
   function showSuccess(message, duration = 3000) {
     successMessage.textContent = message;
     successMessage.style.display = 'block';
@@ -86,6 +122,7 @@ document.addEventListener('DOMContentLoaded', function() {
     }, duration);
   }
 
+  // Function to show error message
   function showError(message, duration = 5000) {
     errorMessage.textContent = message;
     errorMessage.style.display = 'block';
@@ -94,6 +131,7 @@ document.addEventListener('DOMContentLoaded', function() {
     }, duration);
   }
 
+  // Function to format output
   function formatOutput(text) {
     if (!text || typeof text !== 'string') {
       console.error('Invalid input for formatOutput:', text);
@@ -101,64 +139,14 @@ document.addEventListener('DOMContentLoaded', function() {
     }
     
     try {
-      // Clean up the text first
-      let formatted = text
-        .replace(/\\n/g, '\n')
-        .replace(/\\t/g, '\t')
-        .replace(/\\"/g, '"')
-        .replace(/\\/g, '')
-        .replace(/\r\n/g, '\n')
-        .replace(/\r/g, '\n');
+      // Parse the JSON response
+      const data = JSON.parse(text);
       
-      // Split into lines and process
-      const lines = formatted.split('\n').filter(line => line.trim());
-      console.log('Lines to process:', lines);
-      
-      let output = '<div class="timesheet-container">';
-      let currentDate = null;
-      let inTable = false;
-      
-      for (let i = 0; i < lines.length; i++) {
-        const line = lines[i].trim();
-        if (!line) continue;
-        
-        // Check for date header [YYYY-MM-DD]
-        const dateMatch = line.match(/^\[(\d{4}-\d{2}-\d{2})\]$/);
-        if (dateMatch) {
-          if (inTable) {
-            output += '</div>'; // Close previous table
-          }
-          currentDate = dateMatch[1];
-          output += `
-            <div class="date-header">${currentDate}</div>
-          `;
-          inTable = true;
-          continue;
-        }
-        
-        // Skip the column headers line
-        if (line.includes('Time') && line.includes('Description')) {
-          continue;
-        }
-        
-        // Try to match the timesheet entry format
-        const rowMatch = line.match(/^(\d{1,2}:\d{2}\s*(?:AM|PM)\s*-\s*\d{1,2}:\d{2}\s*(?:AM|PM))\s+(.+?)$/);
-        if (rowMatch && inTable) {
-          output += `
-            <div class="timesheet-row">
-              <div class="time-cell">${rowMatch[1]}</div>
-              <div class="description-cell">${rowMatch[2]}</div>
-            </div>
-          `;
-        }
+      if (!data.dates || !Array.isArray(data.dates)) {
+        throw new Error('Invalid response format: missing dates array');
       }
       
-      if (inTable) {
-        output += '</div>'; // Close last table
-      }
-      output += '</div>'; // Close container
-      
-      // Add styles
+      let output = '';
       const styles = `
         <style>
           body {
@@ -185,6 +173,7 @@ document.addEventListener('DOMContentLoaded', function() {
             display: flex;
             flex-direction: column;
             gap: 10px;
+            margin-bottom: 20px;
           }
 
           .date-header {
@@ -225,85 +214,90 @@ document.addEventListener('DOMContentLoaded', function() {
             margin: 0;
           }
 
-          .sidebar {
-            background: linear-gradient(135deg, #2a4b8d, #1a1a2e);
-            position: fixed;
-            left: 0;
-            top: 0;
-            bottom: 0;
-            width: 60px;
-            padding: 20px 0;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            box-shadow: 2px 0 5px rgba(0, 0, 0, 0.2);
+          .error-section {
+            background: rgba(239, 68, 68, 0.1);
+            color: #ef4444;
+            padding: 16px;
+            border-radius: 8px;
+            font-family: 'JetBrains Mono', monospace;
+            white-space: pre-wrap;
           }
         </style>
       `;
       
+      // Process each date
+      data.dates.forEach(dateGroup => {
+        output += `<div class="timesheet-container">`;
+        output += `<div class="date-header">[${dateGroup.date}]</div>`;
+        
+        // Add entries for this date
+        dateGroup.entries.forEach(entry => {
+          output += `
+            <div class="timesheet-row">
+              <div class="time-cell">${entry.timeRange}</div>
+              <div class="description-cell">${entry.description}</div>
+            </div>
+          `;
+        });
+        
+        output += `</div>`;
+      });
+      
       return styles + output;
+      
     } catch (error) {
       console.error('Error formatting output:', error);
-      return `<pre>${text}</pre>`;
+      // If JSON parsing fails, display the raw text in pre-formatted error section
+      return `
+        <div class="timesheet-container">
+          <div class="error-section">
+            <pre>${text}</pre>
+          </div>
+        </div>
+      `;
     }
   }
 
-  summarizeBtn.addEventListener('click', async function() {
-    showLoading();
-    try {
-      const response = await new Promise((resolve, reject) => {
-        chrome.runtime.sendMessage({ action: 'summarize' }, (response) => {
-          if (chrome.runtime.lastError) {
-            reject(new Error(chrome.runtime.lastError.message));
-            return;
-          }
-          if (response && response.error) {
-            reject(new Error(response.error));
-            return;
-          }
-          resolve(response);
-        });
-      });
-
-      if (!response) {
-        throw new Error('No response received from the background script');
-      }
-
-      console.log('Raw response:', response);
-
-      // Extract the summary text from the response
-      let summaryText;
-      if (typeof response === 'string') {
-        summaryText = response;
-      } else if (response.summary) {
-        summaryText = response.summary;
-      } else if (response.error) {
-        throw new Error(response.error);
-      } else {
-        console.warn('Unexpected response format:', response);
-        summaryText = JSON.stringify(response, null, 2);
-      }
-
-      console.log('Summary text:', summaryText);
-      
-      // Format the output
-      const formattedOutput = formatOutput(summaryText);
-      console.log('Formatted output:', formattedOutput);
-      
-      output.innerHTML = formattedOutput;
-      
-      // Save the output
-      chrome.storage.local.set({ 'timesheetOutput': formattedOutput });
-      
-      copyBtn.disabled = false;
-      clearBtn.disabled = false;
-      showSuccess('Summary generated successfully!');
-    } catch (error) {
-      showError('Failed to generate summary: ' + error.message);
-      console.error('Summarize error:', error);
-    } finally {
-      hideLoading();
+  // Handle summarize button click
+  summarizeBtn.addEventListener('click', function() {
+    const selectedDate = historyDateInput.value;
+    if (!selectedDate) {
+      errorMessage.textContent = 'Please select a date';
+      errorMessage.style.display = 'block';
+      return;
     }
+
+    loading.style.display = 'block';
+    successMessage.style.display = 'none';
+    errorMessage.style.display = 'none';
+    output.innerHTML = '';
+
+    chrome.runtime.sendMessage({ 
+      action: 'summarize',
+      date: selectedDate // Send selected date
+    }, function(response) {
+      loading.style.display = 'none';
+
+      if (response.status === 'success' && response.summary) {
+        // Format the summary before displaying
+        output.innerHTML = formatOutput(response.summary);
+        copyBtn.disabled = false;
+        clearBtn.disabled = false;
+        
+        // Save the formatted output
+        chrome.storage.local.set({
+          'timesheetOutput': output.innerHTML
+        });
+
+        // Convert yyyy-MM-dd to Date for display
+        const displayDate = new Date(selectedDate);
+        successMessage.textContent = `Summary generated for ${displayDate.toLocaleDateString()}`;
+        successMessage.style.display = 'block';
+      } else {
+        errorMessage.textContent = response.message || 'Failed to generate summary';
+        errorMessage.style.display = 'block';
+      }
+    });
   });
 
   exportBtn.addEventListener('click', async function() {

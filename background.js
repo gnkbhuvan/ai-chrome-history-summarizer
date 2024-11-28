@@ -35,7 +35,6 @@ class TimesheetTracker {
     try {
       await this.initializeAWS();
       await this.setupListeners();
-      await this.loadPreviousActivities();
       await this.loadHistoryData();
       console.log('All services initialized successfully');
     } catch (error) {
@@ -100,16 +99,22 @@ class TimesheetTracker {
     }
   }
 
-  async loadHistoryData() {
-    console.log('Loading history data...');
+  async loadHistoryData(date = new Date()) {
+    console.log('Loading history data for:', date);
     try {
-      const millisecondsPerDay = 1000 * 60 * 60 * 24;
-      const oneDayAgo = new Date().getTime() - millisecondsPerDay;
+      // Set the start time to the beginning of the specified day (midnight)
+      const startTime = new Date(date);
+      startTime.setHours(0, 0, 0, 0);
+      
+      // Set the end time to the end of the specified day (23:59:59.999)
+      const endTime = new Date(date);
+      endTime.setHours(23, 59, 59, 999);
       
       return new Promise((resolve) => {
         chrome.history.search({
           text: '',              // Return all history items
-          startTime: oneDayAgo,  // Return items from last 24 hours
+          startTime: startTime.getTime(),  // Start of the day
+          endTime: endTime.getTime(),      // End of the day
           maxResults: 10000      // Get a large number of results
         }, async (historyItems) => {
           console.log('Raw history items:', historyItems?.length || 0);
@@ -144,7 +149,7 @@ class TimesheetTracker {
                   const nextVisit = visits[i + 1];
                   const visitTime = new Date(visit.visitTime);
                   
-                  if (visit.visitTime >= oneDayAgo) {
+                  if (visit.visitTime >= startTime.getTime() && visit.visitTime <= endTime.getTime()) {
                     const activity = {
                       date: visitTime.toLocaleDateString(),
                       time: visitTime.toLocaleTimeString(),
@@ -255,22 +260,26 @@ class TimesheetTracker {
     });
   }
 
-  async getFilteredActivities() {
+  async getFilteredActivities(date = new Date()) {
     try {
-      // Ensure we have activities
-      if (!this.activityLog || this.activityLog.length === 0) {
-        await this.loadHistoryData();
-      }
+      // Ensure we have activities for the specified date
+      await this.loadHistoryData(date);
 
-      // Filter last 24 hours
-      const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
-      const recentActivities = this.activityLog.filter(entry => 
-        new Date(entry.startTime) > twentyFourHoursAgo
-      );
+      // Filter activities for the specified date
+      const startOfDay = new Date(date);
+      startOfDay.setHours(0, 0, 0, 0);
+      
+      const endOfDay = new Date(date);
+      endOfDay.setHours(23, 59, 59, 999);
+
+      const dayActivities = this.activityLog.filter(entry => {
+        const entryTime = new Date(entry.startTime);
+        return entryTime >= startOfDay && entryTime <= endOfDay;
+      });
 
       // Group activities by domain
       const domainGroups = {};
-      recentActivities.forEach(activity => {
+      dayActivities.forEach(activity => {
         if (!activity.domain) return;
 
         if (!domainGroups[activity.domain]) {
@@ -312,19 +321,22 @@ class TimesheetTracker {
     }
   }
 
-  async summarizeTimesheet() {
+  async summarizeTimesheet(date = new Date()) {
     try {
-      console.log('Starting timesheet summarization...');
+      console.log('Starting timesheet summarization for:', date);
       
-      const sortedActivities = await this.getFilteredActivities();
+      const sortedActivities = await this.getFilteredActivities(date);
       console.log('Sorted activities:', sortedActivities.length);
 
       if (sortedActivities.length === 0) {
         return { error: 'No valid browsing activities found to summarize.' };
       }
 
-      const summary = await this.getLLMDetailedBreakdown(sortedActivities, sortedActivities.reduce((total, activity) => total + activity.totalTime, 0));
-      return summary; // Return just the summary text
+      const summary = await this.getLLMDetailedBreakdown(
+        sortedActivities, 
+        sortedActivities.reduce((total, activity) => total + activity.totalTime, 0)
+      );
+      return summary;
     } catch (error) {
       console.error('Error in summarizeTimesheet:', error);
       return { error: error.message };
@@ -369,10 +381,9 @@ class TimesheetTracker {
               timeZoneName: 'short'
             })}`,
             date: startTime.toLocaleDateString('en-US', {
-              weekday: 'short',
-              year: 'numeric',
-              month: 'short',
-              day: 'numeric'
+              day: '2-digit',
+              month: '2-digit',
+              year: 'numeric'
             }),
             duration: activity.formattedDuration || '0:00'
           };
@@ -400,50 +411,68 @@ class TimesheetTracker {
           <task>Parse and analyze web browsing data with exact timestamp preservation</task>
           <task>Generate a clean, date-grouped timesheet format</task>
           <task>Group and summarize related activities</task>
-          <task>Calculate accurate time durations</task>
       </key_responsibilities>
 
       <output_format>
-      1. Start with the date header:
-      [YYYY-MM-DD]
+      Return a JSON object with the following structure:
+      {
+        "dates": [
+          {
+            "date": "DD-MM-YYYY",
+            "entries": [
+              {
+                "timeRange": "9:00 AM - 10:30 AM",
+                "description": "Activity description with details"
+              }
+            ]
+          }
+        ]
+      }
 
-      2. Follow with column headers:
-      Time    Description 
+      Example response:
+      {
+        "dates": [
+          {
+            "date": "20-03-2024",
+            "entries": [
+              {
+                "timeRange": "9:00 AM - 10:30 AM",
+                "description": "Development Work on Project X - Extended description with details about specific tasks and achievements"
+              },
+              {
+                "timeRange": "10:45 AM - 11:15 AM",
+                "description": "Code Review Session - Reviewing pull requests and providing feedback"
+              },
+              {
+                "timeRange": "2:00 PM - 3:30 PM",
+                "description": "Feature Implementation - Working on new functionality with detailed progress notes"
+              }
+            ]
+          }
+        ]
+      }
 
-      3. Then data rows:
-      HH:MM AM/PM - HH:MM AM/PM    Activity Description 
-
-      4. When the date changes, add a new date header.
-
-      5. Example format:
-      [2024-03-20]
-      Time    Description   
-      9:00 AM - 10:30 AM    Development Work on Project X - Extended description with details about specific tasks and achievements   
-      10:45 AM - 11:15 AM    Code Review Session - Reviewing pull requests and providing feedback    
-
-      [2024-03-21]
-      Time    Description 
-      9:30 AM - 10:00 AM    Team Standup Meeting - Daily sync with development team    
-
-      6. Rules:
-      - Group entries by date with clear date headers
-      - Use consistent spacing between columns
+      Rules:
+      - Group entries by date in the dates array
+      - Use 12-hour time format with AM/PM for timeRange
       - Include detailed descriptions without truncation
-      - Use 24-hour format for durations
       - Keep descriptions informative and complete
+      - Always return valid JSON that matches the structure above
+      - Ensure all dates are in DD-MM-YYYY format
       </output_format>
 
       <instructions>
       1. Process the provided browsing activities
       2. Group activities by date
-      3. Format the output exactly as shown above
-      4. Use proper date headers in [YYYY-MM-DD] format
-      5. Use 12-hour time format with AM/PM for Time column
-      6. Use 24-hour format (HH:MM) for Duration column
-      7. Include complete, detailed descriptions
-      8. Maintain proper spacing between columns
+      3. Format the output as JSON exactly matching the structure above
+      4. Use DD-MM-YYYY format for dates (e.g., "20-03-2024")
+      5. Use 12-hour time format with AM/PM
+      6. Include complete, detailed descriptions
+      7. Ensure the JSON is properly formatted and valid
+      8. Do not include any text outside the JSON object
       </instructions>
-      </prompt>`;
+      </prompt>
+`;
 
       try {
         const response = await this.bedrockClient.send(new InvokeModelCommand({
@@ -457,8 +486,8 @@ class TimesheetTracker {
               role: "user",
               content: prompt
             }],
-            temperature: 0.7,
-            top_p: 0.9
+            temperature: 0.8,
+            top_p: 0.95
           })
         }));
 
@@ -728,7 +757,9 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === 'summarize') {
     (async () => {
       try {
-        const summary = await timesheetTracker.generateTimesheetSummary();
+        // Use the date from the request, or default to today
+        const date = request.date ? new Date(request.date) : new Date();
+        const summary = await timesheetTracker.summarizeTimesheet(date);
         if (!summary) {
           throw new Error('No summary generated');
         }

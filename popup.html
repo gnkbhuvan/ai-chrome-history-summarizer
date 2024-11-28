@@ -342,6 +342,94 @@
       50% { box-shadow: 0 0 20px rgba(79, 70, 229, 0.5); }
       100% { box-shadow: 0 0 5px rgba(79, 70, 229, 0.3); }
     }
+
+    .date-input-container {
+      margin-right: 10px;
+    }
+
+    .date-input {
+      background: var(--bg-secondary);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      color: var(--text-primary);
+      padding: 10px;
+      border-radius: 8px;
+      font-family: inherit;
+      font-size: 14px;
+      outline: none;
+    }
+
+    .date-input:focus {
+      border-color: var(--primary-color);
+      box-shadow: var(--neon-shadow);
+    }
+
+    /* Style the calendar icon and text */
+    .date-input::-webkit-calendar-picker-indicator {
+      filter: invert(1);
+      opacity: 0.7;
+      cursor: pointer;
+    }
+
+    .date-input::-webkit-calendar-picker-indicator:hover {
+      opacity: 1;
+    }
+
+    /* Summary Formatting Styles */
+    .summary-section {
+      background: var(--bg-secondary);
+      border-radius: 12px;
+      padding: 16px;
+      margin-bottom: 16px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .summary-section h3 {
+      color: var(--accent-color);
+      margin: 0 0 12px 0;
+      font-size: 18px;
+      font-weight: 600;
+      padding-bottom: 8px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .section-content {
+      color: var(--text-primary);
+      line-height: 1.6;
+    }
+
+    .section-content p {
+      margin: 8px 0;
+    }
+
+    .section-content li {
+      margin: 6px 0;
+      list-style-type: none;
+      position: relative;
+      padding-left: 20px;
+    }
+
+    .section-content li:before {
+      content: "•";
+      color: var(--accent-color);
+      position: absolute;
+      left: 0;
+    }
+
+    .time-entry {
+      color: var(--accent-color);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 14px;
+      margin: 8px 0;
+    }
+
+    .error-section {
+      background: rgba(239, 68, 68, 0.1);
+      color: #ef4444;
+      padding: 16px;
+      border-radius: 8px;
+      font-family: 'JetBrains Mono', monospace;
+      white-space: pre-wrap;
+    }
   </style>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono&display=swap" rel="stylesheet">
@@ -377,8 +465,11 @@
     </div>
 
     <div class="button-group">
+      <div class="date-input-container">
+        <input type="date" id="historyDate" class="date-input">
+      </div>
       <button id="summarizeBtn" class="primary-btn">
-        <i class="fas fa-bolt"></i> Today's Summary
+        <i class="fas fa-bolt"></i> Get Summary
       </button>
       <button id="exportBtn" class="secondary-btn">
         <i class="fas fa-file-export"></i> Export History
