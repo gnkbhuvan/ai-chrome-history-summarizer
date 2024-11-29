@@ -44,5 +44,5 @@ You have the right to:
 ### Changes to Privacy Policy
 We reserve the right to update this privacy policy. Users will be notified of any changes.
 
-### Contact
-For privacy concerns, contact: support@chronolens.ai
+<!-- ### Contact
+For privacy concerns, contact: support@chronolens.ai -->
