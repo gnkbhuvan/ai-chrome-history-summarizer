@@ -9,7 +9,7 @@ self.addEventListener('activate', (event) => {
   event.waitUntil(clients.claim());
 });
 
-import { BedrockRuntimeClient, InvokeModelCommand } from "@aws-sdk/client-bedrock-runtime";
+const { BedrockRuntimeClient, InvokeModelCommand } = require("@aws-sdk/client-bedrock-runtime");
 
 class TimesheetTracker {
   constructor() {
@@ -460,6 +460,21 @@ class TimesheetTracker {
       - Always return valid JSON that matches the structure above
       - Ensure all dates are in DD-MM-YYYY format
       </output_format>
+
+          <description_enhancement_criteria>
+          Descriptions should:
+          1. Start with the primary work context or project name
+          2. Describe specific tasks and activities
+          3. Include measurable outcomes or progress
+          4. Use action verbs
+          5. Be clear and professional
+          6. Avoid vague or generic statements
+
+          Examples of Strong Descriptions:
+          - "Developed backend API endpoints for customer registration module, completing 3 critical integration points and resolving authentication security gaps"
+          - "Conducted comprehensive code review for marketing dashboard project, identified and addressed 7 potential performance bottlenecks"
+          - "Collaborated with design team to refine user interface wireframes, implementing 12 UX improvements based on recent user feedback"
+          </description_enhancement_criteria>
 
       <instructions>
       1. Process the provided browsing activities
