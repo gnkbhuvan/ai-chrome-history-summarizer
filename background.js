@@ -422,7 +422,7 @@ class TimesheetTracker {
             "entries": [
               {
                 "timeRange": "9:00 AM - 10:30 AM",
-                "description": "Activity description with details"
+                "description": "Concise one-line activity description"
               }
             ]
           }
@@ -437,15 +437,15 @@ class TimesheetTracker {
             "entries": [
               {
                 "timeRange": "9:00 AM - 10:30 AM",
-                "description": "Development Work on Project X - Extended description with details about specific tasks and achievements"
+                "description": "Developed API endpoints for customer registration module"
               },
               {
                 "timeRange": "10:45 AM - 11:15 AM",
-                "description": "Code Review Session - Reviewing pull requests and providing feedback"
+                "description": "Conducted code review for marketing dashboard project"
               },
               {
                 "timeRange": "2:00 PM - 3:30 PM",
-                "description": "Feature Implementation - Working on new functionality with detailed progress notes"
+                "description": "Implemented user interface improvements based on feedback"
               }
             ]
           }
@@ -455,26 +455,24 @@ class TimesheetTracker {
       Rules:
       - Group entries by date in the dates array
       - Use 12-hour time format with AM/PM for timeRange
-      - Include detailed descriptions without truncation
-      - Keep descriptions informative and complete
+      - Provide concise, one-line descriptions
       - Always return valid JSON that matches the structure above
       - Ensure all dates are in DD-MM-YYYY format
       </output_format>
 
-          <description_enhancement_criteria>
-          Descriptions should:
-          1. Start with the primary work context or project name
-          2. Describe specific tasks and activities
-          3. Include measurable outcomes or progress
-          4. Use action verbs
-          5. Be clear and professional
-          6. Avoid vague or generic statements
+      <description_enhancement_criteria>
+      Descriptions should:
+      1. Be concise and fit on one line
+      2. Start with an action verb
+      3. Clearly state the main task or activity
+      4. Be professional and informative
+      5. Avoid unnecessary details or elaboration
 
-          Examples of Strong Descriptions:
-          - "Developed backend API endpoints for customer registration module, completing 3 critical integration points and resolving authentication security gaps"
-          - "Conducted comprehensive code review for marketing dashboard project, identified and addressed 7 potential performance bottlenecks"
-          - "Collaborated with design team to refine user interface wireframes, implementing 12 UX improvements based on recent user feedback"
-          </description_enhancement_criteria>
+      Examples of Concise Descriptions:
+      - "Developed backend API endpoints for customer registration"
+      - "Reviewed code for marketing dashboard project"
+      - "Refined user interface based on recent feedback"
+      </description_enhancement_criteria>
 
       <instructions>
       1. Process the provided browsing activities
@@ -482,7 +480,7 @@ class TimesheetTracker {
       3. Format the output as JSON exactly matching the structure above
       4. Use DD-MM-YYYY format for dates (e.g., "20-03-2024")
       5. Use 12-hour time format with AM/PM
-      6. Include complete, detailed descriptions
+      6. Provide concise, one-line descriptions for each entry
       7. Ensure the JSON is properly formatted and valid
       8. Do not include any text outside the JSON object
       </instructions>
