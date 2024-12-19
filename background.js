@@ -285,6 +285,8 @@ class TimesheetTracker {
         if (!domainGroups[activity.domain]) {
           domainGroups[activity.domain] = {
             domain: activity.domain,
+            title: activity.title,
+            url: activity.url,
             totalTime: 0,
             visits: 0,
             activities: [],
@@ -298,9 +300,11 @@ class TimesheetTracker {
         domain.visits++;
         domain.totalTime += activity.duration || 0;
 
-        // Update time range
-        if (new Date(activity.startTime) < new Date(domain.startTime)) {
+        // Update time range and most recent title
+        if (new Date(activity.startTime) > new Date(domain.startTime)) {
           domain.startTime = activity.startTime;
+          domain.title = activity.title;
+          domain.url = activity.url;
         }
         if (new Date(activity.endTime) > new Date(domain.endTime)) {
           domain.endTime = activity.endTime;
@@ -411,6 +415,7 @@ class TimesheetTracker {
           <task>Parse and analyze web browsing data with exact timestamp preservation</task>
           <task>Generate a clean, date-grouped timesheet format</task>
           <task>Group and summarize related activities</task>
+          <task>Include specific details like Jira ticket numbers or video titles when available</task>
       </key_responsibilities>
 
       <output_format>
@@ -422,7 +427,7 @@ class TimesheetTracker {
             "entries": [
               {
                 "timeRange": "9:00 AM - 10:30 AM",
-                "description": "Concise one-line activity description"
+                "description": "Concise one-line activity description with specific details"
               }
             ]
           }
@@ -437,15 +442,15 @@ class TimesheetTracker {
             "entries": [
               {
                 "timeRange": "9:00 AM - 10:30 AM",
-                "description": "Developed API endpoints for customer registration module"
+                "description": "Developed API endpoints for customer registration module (JIRA-1234)"
               },
               {
                 "timeRange": "10:45 AM - 11:15 AM",
-                "description": "Conducted code review for marketing dashboard project"
+                "description": "Conducted code review for marketing dashboard project (PR #42)"
               },
               {
                 "timeRange": "2:00 PM - 3:30 PM",
-                "description": "Implemented user interface improvements based on feedback"
+                "description": "Watched tutorial: 'Advanced React Hooks' on YouTube"
               }
             ]
           }
@@ -455,7 +460,7 @@ class TimesheetTracker {
       Rules:
       - Group entries by date in the dates array
       - Use 12-hour time format with AM/PM for timeRange
-      - Provide concise, one-line descriptions
+      - Provide concise, one-line descriptions with specific details when available
       - Always return valid JSON that matches the structure above
       - Ensure all dates are in DD-MM-YYYY format
       </output_format>
@@ -465,13 +470,15 @@ class TimesheetTracker {
       1. Be concise and fit on one line
       2. Start with an action verb
       3. Clearly state the main task or activity
-      4. Be professional and informative
-      5. Avoid unnecessary details or elaboration
+      4. Include specific details like Jira ticket numbers, PR numbers, or video titles when available
+      5. Be professional and informative
+      6. Avoid unnecessary elaboration
 
-      Examples of Concise Descriptions:
-      - "Developed backend API endpoints for customer registration"
-      - "Reviewed code for marketing dashboard project"
-      - "Refined user interface based on recent feedback"
+      Examples of Enhanced Descriptions:
+      - "Developed backend API endpoints for customer registration (JIRA-1234)"
+      - "Reviewed code for marketing dashboard project (PR #42)"
+      - "Watched tutorial: 'Advanced React Hooks' on YouTube"
+      - "Attended team meeting: Sprint planning for Q2 goals"
       </description_enhancement_criteria>
 
       <instructions>
@@ -480,7 +487,7 @@ class TimesheetTracker {
       3. Format the output as JSON exactly matching the structure above
       4. Use DD-MM-YYYY format for dates (e.g., "20-03-2024")
       5. Use 12-hour time format with AM/PM
-      6. Provide concise, one-line descriptions for each entry
+      6. Provide concise, one-line descriptions for each entry, including specific details when available
       7. Ensure the JSON is properly formatted and valid
       8. Do not include any text outside the JSON object
       </instructions>
