@@ -122,13 +122,52 @@ document.addEventListener('DOMContentLoaded', function() {
     }, duration);
   }
 
-  // Function to show error message
+  // Function to show error message with user-friendly text
   function showError(message, duration = 5000) {
-    errorMessage.textContent = message;
+    const userFriendlyMessages = {
+      'No valid browsing activities found to summarize': 'No browsing history found for the selected date. Try selecting a different date.',
+      'Network error': 'Unable to connect to the internet. Please check your connection and try again.',
+      'Error during summarization': 'Unable to analyze your history right now. Please try again in a few moments.',
+      'API error': 'Our service is temporarily unavailable. Please try again later.',
+      'Rate limit exceeded': 'You\'ve made too many requests. Please wait a few minutes and try again.',
+      'Invalid date': 'Please select a valid date to analyze your history.',
+      'Permission denied': 'ChronoLens needs permission to access your history. Please check your extension permissions.',
+      'default': 'Something unexpected happened. Please try refreshing the page.'
+    };
+
+    // Check for network connectivity
+    if (!navigator.onLine) {
+      message = 'Network error';
+    }
+
+    // If the message is a JSON string containing an error, parse it
+    try {
+      const parsedMessage = JSON.parse(message);
+      if (parsedMessage.error) {
+        message = parsedMessage.error;
+      }
+    } catch (e) {
+      // Not a JSON string, use the message as is
+    }
+
+    // Get user-friendly message or use default
+    const userFriendlyMessage = userFriendlyMessages[message] || userFriendlyMessages.default;
+    
+    // Show error message with icon
+    errorMessage.innerHTML = `<i class="fas fa-exclamation-circle"></i> ${userFriendlyMessage}`;
     errorMessage.style.display = 'block';
-    setTimeout(() => {
-      errorMessage.style.display = 'none';
-    }, duration);
+    
+    // Hide loading indicator if it's showing
+    hideLoading();
+    
+    // Clear any existing success messages
+    successMessage.style.display = 'none';
+    
+    if (duration) {
+      setTimeout(() => {
+        errorMessage.style.display = 'none';
+      }, duration);
+    }
   }
 
   // Function to format output
@@ -234,7 +273,7 @@ document.addEventListener('DOMContentLoaded', function() {
         dateGroup.entries.forEach(entry => {
           output += `
             <div class="timesheet-row">
-              <div class="time-cell">${entry.timeRange}</div>
+              <div class="time-cell">${entry.timeStamp}</div>
               <div class="description-cell">${entry.description}</div>
             </div>
           `;
@@ -302,9 +341,19 @@ document.addEventListener('DOMContentLoaded', function() {
 
   exportBtn.addEventListener('click', async function() {
     showLoading('Preparing CSV export...');
+    const selectedDate = historyDateInput.value;
+    if (!selectedDate) {
+      showError('Please select a date');
+      hideLoading();
+      return;
+    }
+
     try {
       const response = await new Promise((resolve, reject) => {
-        chrome.runtime.sendMessage({ action: 'export' }, (response) => {
+        chrome.runtime.sendMessage({ 
+          action: 'export',
+          date: selectedDate  // Send selected date to background script
+        }, (response) => {
           if (chrome.runtime.lastError) {
             reject(new Error(chrome.runtime.lastError.message));
             return;

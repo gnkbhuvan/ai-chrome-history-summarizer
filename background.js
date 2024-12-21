@@ -277,11 +277,14 @@ class TimesheetTracker {
         return entryTime >= startOfDay && entryTime <= endOfDay;
       });
 
-      // Group activities by domain
+      // Group activities by domain and title
       const domainGroups = {};
+
       dayActivities.forEach(activity => {
+        // Ensure activity has a domain
         if (!activity.domain) return;
 
+        // Initialize domain group if it doesn't exist
         if (!domainGroups[activity.domain]) {
           domainGroups[activity.domain] = {
             domain: activity.domain,
@@ -291,7 +294,7 @@ class TimesheetTracker {
             visits: 0,
             activities: [],
             startTime: activity.startTime,
-            endTime: activity.endTime
+            endTime: activity.endTime || activity.startTime // Fallback to startTime if endTime is missing
           };
         }
 
@@ -300,25 +303,51 @@ class TimesheetTracker {
         domain.visits++;
         domain.totalTime += activity.duration || 0;
 
-        // Update time range and most recent title
-        if (new Date(activity.startTime) > new Date(domain.startTime)) {
+        // Update time range - keep track of earliest start and latest end
+        const activityStart = new Date(activity.startTime);
+        const activityEnd = new Date(activity.endTime || activity.startTime);
+        const currentStart = new Date(domain.startTime);
+        const currentEnd = new Date(domain.endTime);
+
+        // Update earliest start time
+        if (activityStart < currentStart) {
           domain.startTime = activity.startTime;
           domain.title = activity.title;
           domain.url = activity.url;
         }
-        if (new Date(activity.endTime) > new Date(domain.endTime)) {
-          domain.endTime = activity.endTime;
+
+        // Update latest end time
+        if (activityEnd > currentEnd) {
+          domain.endTime = activity.endTime || activity.startTime;
         }
       });
 
-      // Convert to array and sort by total time
-      return Object.values(domainGroups)
+      // Convert to array and sort
+      const sortedDomains = Object.values(domainGroups)
         .map(domain => ({
           ...domain,
           totalTime: Math.round(domain.totalTime * 100) / 100,
-          formattedDuration: this.formatDuration(domain.totalTime)
+          formattedDuration: this.formatDuration(domain.totalTime),
+          // Add timestamp for sorting
+          timestamp: new Date(domain.startTime).getTime()
         }))
-        .sort((a, b) => b.totalTime - a.totalTime);
+        .sort((a, b) => {
+          // Primary sort by start time (ascending)
+          const timeComparison = a.timestamp - b.timestamp;
+          if (timeComparison !== 0) return timeComparison;
+          
+          // Secondary sort by total time (descending) if start times are equal
+          return b.totalTime - a.totalTime;
+        });
+
+      // Format dates in the output
+      return sortedDomains.map(domain => ({
+        ...domain,
+        startTime: new Date(domain.startTime).toLocaleString(),
+        endTime: new Date(domain.endTime).toLocaleString(),
+        // Remove the temporary timestamp field
+        timestamp: undefined
+      }));
     } catch (error) {
       console.error('Error getting filtered activities:', error);
       throw error;
@@ -373,12 +402,7 @@ class TimesheetTracker {
             domain: activity.domain || 'unknown',
             title: activity.title || 'Untitled',
             url: activity.url || '',
-            timeRange: `${startTime.toLocaleTimeString('en-US', {
-              hour: '2-digit',
-              minute: '2-digit',
-              hour12: true,
-              timeZoneName: 'short'
-            })} - ${endTime.toLocaleTimeString('en-US', {
+            timeStamp: `${startTime.toLocaleTimeString('en-US', {
               hour: '2-digit',
               minute: '2-digit',
               hour12: true,
@@ -415,7 +439,6 @@ class TimesheetTracker {
           <task>Parse and analyze web browsing data with exact timestamp preservation</task>
           <task>Generate a clean, date-grouped timesheet format</task>
           <task>Group and summarize related activities</task>
-          <task>Include specific details like Jira ticket numbers or video titles when available</task>
       </key_responsibilities>
 
       <output_format>
@@ -426,8 +449,8 @@ class TimesheetTracker {
             "date": "DD-MM-YYYY",
             "entries": [
               {
-                "timeRange": "9:00 AM - 10:30 AM",
-                "description": "Concise one-line activity description with specific details"
+                "timeStamp": "9:00 AM",
+                "description": "Activity description with details"
               }
             ]
           }
@@ -441,16 +464,16 @@ class TimesheetTracker {
             "date": "20-03-2024",
             "entries": [
               {
-                "timeRange": "9:00 AM - 10:30 AM",
-                "description": "Developed API endpoints for customer registration module (JIRA-1234)"
+                "timeStamp": "9:00 AM",
+                "description": "Development Work on Project X - Extended description with details about specific tasks and achievements"
               },
               {
-                "timeRange": "10:45 AM - 11:15 AM",
-                "description": "Conducted code review for marketing dashboard project (PR #42)"
+                "timeStamp": "10:45 AM",
+                "description": "Code Review Session - Reviewing pull requests and providing feedback"
               },
               {
-                "timeRange": "2:00 PM - 3:30 PM",
-                "description": "Watched tutorial: 'Advanced React Hooks' on YouTube"
+                "timeStamp": "2:00 PM",
+                "description": "Feature Implementation - Working on new functionality with detailed progress notes"
               }
             ]
           }
@@ -459,27 +482,27 @@ class TimesheetTracker {
 
       Rules:
       - Group entries by date in the dates array
-      - Use 12-hour time format with AM/PM for timeRange
-      - Provide concise, one-line descriptions with specific details when available
+      - Use 12-hour time format with AM/PM for timeStamp
+      - Include detailed descriptions without truncation
+      - Keep descriptions informative and complete
       - Always return valid JSON that matches the structure above
       - Ensure all dates are in DD-MM-YYYY format
       </output_format>
 
-      <description_enhancement_criteria>
-      Descriptions should:
-      1. Be concise and fit on one line
-      2. Start with an action verb
-      3. Clearly state the main task or activity
-      4. Include specific details like Jira ticket numbers, PR numbers, or video titles when available
-      5. Be professional and informative
-      6. Avoid unnecessary elaboration
+          <description_enhancement_criteria>
+          Descriptions should:
+          1. Start with the primary work context or project name
+          2. Describe specific tasks and activities
+          3. Include measurable outcomes or progress
+          4. Use action verbs
+          5. Be clear and professional
+          6. Avoid vague or generic statements
 
-      Examples of Enhanced Descriptions:
-      - "Developed backend API endpoints for customer registration (JIRA-1234)"
-      - "Reviewed code for marketing dashboard project (PR #42)"
-      - "Watched tutorial: 'Advanced React Hooks' on YouTube"
-      - "Attended team meeting: Sprint planning for Q2 goals"
-      </description_enhancement_criteria>
+          Examples of Strong Descriptions:
+          - "Developed backend API endpoints for customer registration module, completing 3 critical integration points and resolving authentication security gaps"
+          - "Conducted comprehensive code review for marketing dashboard project, identified and addressed 7 potential performance bottlenecks"
+          - "Collaborated with design team to refine user interface wireframes, implementing 12 UX improvements based on recent user feedback"
+          </description_enhancement_criteria>
 
       <instructions>
       1. Process the provided browsing activities
@@ -487,7 +510,7 @@ class TimesheetTracker {
       3. Format the output as JSON exactly matching the structure above
       4. Use DD-MM-YYYY format for dates (e.g., "20-03-2024")
       5. Use 12-hour time format with AM/PM
-      6. Provide concise, one-line descriptions for each entry, including specific details when available
+      6. Include complete, detailed descriptions
       7. Ensure the JSON is properly formatted and valid
       8. Do not include any text outside the JSON object
       </instructions>
@@ -603,79 +626,63 @@ class TimesheetTracker {
       .replace(/\\/g, '');
   }
 
-  async exportToCSV() {
+  async exportToCSV(date = new Date()) {
     try {
-      const endTime = Date.now();
-      const startTime = endTime - (24 * 60 * 60 * 1000); // Last 24 hours
-
-      const historyItems = await new Promise((resolve) => {
-        chrome.history.search({
-          text: '',
-          startTime: startTime,
-          endTime: endTime,
-          maxResults: 10000
-        }, resolve);
-      });
-
-      if (historyItems.length === 0) {
-        throw new Error('No history items found to export');
-      }
-
-      // Create CSV rows with individual entries
-      const csvRows = [
-        ['Date', 'Time', 'Title', 'Domain', 'URL']
-      ];
-
-      for (const item of historyItems) {
-        try {
-          if (!item.url || item.url.startsWith('chrome://') || item.url.startsWith('chrome-extension://')) {
-            continue;
-          }
-
-          const url = new URL(item.url);
-          const date = new Date(item.lastVisitTime);
-          
-          csvRows.push([
-            date.toLocaleDateString(),
-            date.toLocaleTimeString(),
-            item.title || '[No Title]',
-            url.hostname,
-            item.url
-          ]);
-        } catch (error) {
-          console.error('Error processing history item:', error);
-        }
+      // Get filtered activities for the specified date
+      const activities = await this.getFilteredActivities(date);
+      
+      if (!activities || activities.length === 0) {
+        throw new Error('No activities found for the selected date');
       }
 
       // Create CSV content
-      const csvContent = csvRows.map(row => 
-        row.map(cell => `"${String(cell).replace(/"/g, '""')}"`)
-        .join(',')
-      ).join('\n');
+      let csvContent = 'Domain,Title,Duration (minutes),Start Time,End Time,URL\n';
       
-      // Create blob and data URL
-      const blob = new Blob([csvContent], { type: 'text/csv' });
+      activities.forEach(activity => {
+        // Ensure all required fields have default values
+        const duration = typeof activity.duration === 'number' ? activity.duration : 0;
+        const startTime = activity.startTime ? new Date(activity.startTime).toLocaleString() : '';
+        const endTime = activity.endTime ? new Date(activity.endTime).toLocaleString() : '';
+        const domain = activity.domain || '';
+        const title = (activity.title || '').replace(/,/g, ' ');
+        const url = activity.url || '';
+
+        const row = [
+          domain,
+          title,
+          duration.toFixed(2),
+          startTime,
+          endTime,
+          url
+        ].map(field => `"${field}"`).join(',');
+        
+        csvContent += row + '\n';
+      });
+
+      // Format date for filename
+      const dateStr = date.toISOString().split('T')[0];
+      const filename = `timesheet-${dateStr}.csv`;
+
+      // Create data URL directly
+      const csvBlob = new Blob([csvContent], { type: 'text/csv' });
       const reader = new FileReader();
       
       return new Promise((resolve, reject) => {
-        reader.onload = async () => {
-          try {
-            if (!chrome.downloads) {
-              throw new Error('Downloads API not available');
+        reader.onload = () => {
+          chrome.downloads.download({
+            url: reader.result,
+            filename: filename,
+            saveAs: true
+          }, (downloadId) => {
+            if (chrome.runtime.lastError) {
+              reject(new Error(chrome.runtime.lastError.message));
+            } else {
+              resolve(downloadId);
             }
-            const downloadId = await chrome.downloads.download({
-              url: reader.result,
-              filename: `browsing-history-${new Date().toISOString().split('T')[0]}.csv`,
-              saveAs: true
-            });
-            resolve(downloadId);
-          } catch (error) {
-            console.error('Download error:', error);
-            reject(error);
-          }
+          });
         };
         reader.onerror = () => reject(new Error('Failed to read CSV data'));
-        reader.readAsDataURL(blob);
+        reader.readAsDataURL(csvBlob);
       });
     } catch (error) {
       console.error('Error exporting to CSV:', error);
@@ -764,11 +771,17 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     // Use async/await pattern with sendResponse
     (async () => {
       try {
-        const downloadId = await timesheetTracker.exportToCSV();
+        // Use the date from the request, or default to today
+        const date = request.date ? new Date(request.date) : new Date();
+        const downloadId = await timesheetTracker.exportToCSV(date);
         sendResponse({ status: 'success', downloadId });
       } catch (error) {
         console.error('Export error:', error);
-        sendResponse({ status: 'error', message: error.toString() });
+        sendResponse({ 
+          status: 'error', 
+          message: error.toString(),
+          details: error.stack 
+        });
       }
     })();
     return true; // Keep the message channel open for async response
