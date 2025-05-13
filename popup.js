@@ -176,15 +176,18 @@ document.addEventListener('DOMContentLoaded', function() {
       console.error('Invalid input for formatOutput:', text);
       return '';
     }
-    
+    // Remove code block markers if present
+    let cleaned = text.trim();
+    // Remove triple backtick code block (with or without json)
+    if (cleaned.startsWith('```')) {
+      cleaned = cleaned.replace(/^```[a-zA-Z]*\n?/, '').replace(/```$/, '').trim();
+    }
     try {
       // Parse the JSON response
-      const data = JSON.parse(text);
-      
+      const data = JSON.parse(cleaned);
       if (!data.dates || !Array.isArray(data.dates)) {
         throw new Error('Invalid response format: missing dates array');
       }
-      
       let output = '';
       const styles = `
         <style>
@@ -195,7 +198,6 @@ document.addEventListener('DOMContentLoaded', function() {
             padding: 0;
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
           }
-
           #output {
             padding: 12px;
             height: 100vh;
@@ -203,7 +205,6 @@ document.addEventListener('DOMContentLoaded', function() {
             box-sizing: border-box;
             white-space: normal;
           }
-
           .timesheet-container {
             background: rgba(26, 26, 46, 0.8);
             border-radius: 10px;
@@ -214,7 +215,6 @@ document.addEventListener('DOMContentLoaded', function() {
             gap: 10px;
             margin-bottom: 20px;
           }
-
           .date-header {
             color: #4a9eff;
             font-size: 1.2em;
@@ -223,7 +223,6 @@ document.addEventListener('DOMContentLoaded', function() {
             border-bottom: 2px solid #4a9eff;
             margin: 0;
           }
-
           .timesheet-row {
             display: flex;
             flex-direction: column;
@@ -233,18 +232,15 @@ document.addEventListener('DOMContentLoaded', function() {
             transition: background 0.3s ease;
             margin: 0;
           }
-
           .timesheet-row:hover {
             background: rgba(74, 158, 255, 0.1);
           }
-
           .time-cell {
             color: #4a9eff;
             font-weight: 500;
             margin: 0;
             padding-bottom: 2px;
           }
-
           .description-cell {
             color: #e6e6e6;
             line-height: 1.4;
@@ -252,7 +248,6 @@ document.addEventListener('DOMContentLoaded', function() {
             border-left: 2px solid rgba(74, 158, 255, 0.3);
             margin: 0;
           }
-
           .error-section {
             background: rgba(239, 68, 68, 0.1);
             color: #ef4444;
@@ -263,12 +258,10 @@ document.addEventListener('DOMContentLoaded', function() {
           }
         </style>
       `;
-      
       // Process each date
       data.dates.forEach(dateGroup => {
         output += `<div class="timesheet-container">`;
         output += `<div class="date-header">[${dateGroup.date}]</div>`;
-        
         // Add entries for this date
         dateGroup.entries.forEach(entry => {
           output += `
@@ -278,12 +271,9 @@ document.addEventListener('DOMContentLoaded', function() {
             </div>
           `;
         });
-        
         output += `</div>`;
       });
-      
       return styles + output;
-      
     } catch (error) {
       console.error('Error formatting output:', error);
       // If JSON parsing fails, display the raw text in pre-formatted error section

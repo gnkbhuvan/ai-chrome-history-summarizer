@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "ChronoLens AI - Browser History Analyzer",
-  "version": "1.1.0",
-  "description": "AI-powered browser history analyzer",
+  "name": "ChronoLens AI - Browser History Summariser",
+  "version": "1.1.5",
+  "description": "AI-powered browser history summariser",
   "permissions": [
     "history",
     "tabs",
@@ -10,15 +10,12 @@
     "activeTab",
     "downloads"
   ],
-  "host_permissions": [
-    "https://bedrock-runtime.us-west-2.amazonaws.com/*"
-  ],
   "content_security_policy": {
     "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'",
     "sandbox": "sandbox allow-scripts allow-forms allow-popups allow-modals; script-src 'self'"
   },
   "background": {
-    "service_worker": "dist/background.bundle.js"
+    "service_worker": "./background.bundle.js"
   },
   "action": {
     "default_popup": "popup.html",

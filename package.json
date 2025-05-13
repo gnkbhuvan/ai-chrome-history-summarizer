@@ -11,8 +11,7 @@
     "clean": "npm run clean:dist && npm run clean:test"
   },
   "dependencies": {
-    "@aws-sdk/client-bedrock-runtime": "^3.535.0",
-    "@aws-sdk/credential-provider-node": "^3.535.0"
+    "@google/generative-ai": "^0.2.0"
   },
   "devDependencies": {
     "@babel/core": "^7.24.0",

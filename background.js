@@ -9,7 +9,7 @@ self.addEventListener('activate', (event) => {
   event.waitUntil(clients.claim());
 });
 
-const { BedrockRuntimeClient, InvokeModelCommand } = require("@aws-sdk/client-bedrock-runtime");
+const { GoogleGenerativeAI } = require("@google/generative-ai");
 
 class TimesheetTracker {
   constructor() {
@@ -17,15 +17,11 @@ class TimesheetTracker {
     this.currentTab = null;
     this.activityLog = [];
     
-    // Use more secure environment variable handling
-    this.AWS_ACCESS_KEY = process.env.AWS_ACCESS_KEY || '';
-    this.AWS_SECRET_KEY = process.env.AWS_SECRET_KEY || '';
-    this.AWS_REGION = process.env.AWS_REGION || 'us-west-2';
-    this.bedrockClient = null;
-    
-    if (!this.AWS_ACCESS_KEY || !this.AWS_SECRET_KEY) {
-      console.error('AWS credentials not found in environment variables');
-    }
+    // Initialize Gemini
+    this.genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+    this.model = this.genAI.getGenerativeModel({
+      model: "gemini-2.0-flash",
+    });
     
     // Initialize services
     this.initializeServices();
@@ -33,35 +29,11 @@ class TimesheetTracker {
 
   async initializeServices() {
     try {
-      await this.initializeAWS();
       await this.setupListeners();
       await this.loadHistoryData();
       console.log('All services initialized successfully');
     } catch (error) {
       console.error('Error during service initialization:', error);
-    }
-  }
-
-  async initializeAWS() {
-    try {
-      const awsConfig = {
-        region: this.AWS_REGION,
-        credentials: {
-          accessKeyId: this.AWS_ACCESS_KEY,
-          secretAccessKey: this.AWS_SECRET_KEY
-        }
-      };
-
-      this.bedrockClient = new BedrockRuntimeClient(awsConfig);
-      
-      // Verify credentials without eval
-      const credentials = await this.bedrockClient.config.credentials();
-      if (!credentials) {
-        throw new Error('Failed to load AWS credentials');
-      }
-    } catch (error) {
-      console.error('AWS Bedrock initialization failed:', error);
-      throw error;
     }
   }
 
@@ -378,15 +350,15 @@ class TimesheetTracker {
 
   async getLLMDetailedBreakdown(activities, totalTime) {
     try {
-      if (!this.bedrockClient) {
-        throw new Error('AWS Bedrock client not initialized. Please check configuration.');
+      if (!process.env.GEMINI_API_KEY) {
+        throw new Error('Gemini API key not configured. Please check configuration.');
       }
 
       if (!activities || activities.length === 0) {
         throw new Error('No activities provided for analysis');
       }
 
-      console.log('Sending request to AWS Bedrock...');
+      console.log('Sending request to Gemini...');
 
       const formattedActivities = activities.map(activity => {
         if (!activity || !activity.startTime) {
@@ -518,94 +490,33 @@ class TimesheetTracker {
 `;
 
       try {
-        const response = await this.bedrockClient.send(new InvokeModelCommand({
-          modelId: "anthropic.claude-3-5-haiku-20241022-v1:0",
-          contentType: "application/json",
-          accept: "application/json",
-          body: JSON.stringify({
-            anthropic_version: "bedrock-2023-05-31",
-            max_tokens: 8192,
-            messages: [{
-              role: "user",
-              content: prompt
-            }],
-            temperature: 0.8,
-            top_p: 0.95
-          })
-        }));
-
-        if (!response || !response.body) {
-          console.error('Empty response from Bedrock');
-          throw new Error('Empty response received from Bedrock');
-        }
-
-        // Log raw response for debugging
-        const rawResponse = new TextDecoder().decode(response.body);
-        console.log('Raw Bedrock response:', rawResponse);
-
-        // Parse the response body
-        let responseBody;
-        try {
-          responseBody = JSON.parse(rawResponse);
-          console.log('Parsed response body:', JSON.stringify(responseBody, null, 2));
-        } catch (error) {
-          console.error('Failed to parse response:', error);
-          throw new Error('Failed to parse Bedrock response: ' + error.message);
-        }
-
-        // Handle different response formats
-        let content;
-        if (responseBody.content) {
-          content = responseBody.content;
-        } else if (responseBody.messages?.[0]?.content) {
-          content = responseBody.messages[0].content;
-        } else if (responseBody.completion) {
-          content = responseBody.completion;
+        // Use Gemini's generateContent method
+        const result = await this.model.generateContent(prompt);
+        let text = '';
+        if (result && result.response && typeof result.response.text === 'function') {
+          text = await result.response.text();
+        } else if (result && typeof result.text === 'function') {
+          text = await result.text();
+        } else if (result && typeof result.text === 'string') {
+          text = result.text;
         } else {
-          console.error('Unexpected response structure:', responseBody);
-          throw new Error('Unexpected response structure from Bedrock');
-        }
-
-        // Extract text content
-        let text;
-        if (Array.isArray(content)) {
-          // Handle array of content blocks (Claude 3 format)
-          text = content
-            .filter(block => block.type === 'text')
-            .map(block => block.text)
-            .join('\n');
-        } else if (typeof content === 'string') {
-          // Handle direct string content
-          text = content;
-        } else if (content?.text) {
-          // Handle object with text property
-          text = content.text;
-        } else {
-          console.error('Unable to extract text from content:', content);
-          throw new Error('Unable to extract text from Bedrock response');
-        }
-
-        // Validate and clean the text
-        if (!text || typeof text !== 'string') {
-          console.error('Invalid text content:', text);
-          throw new Error('Invalid text content in Bedrock response');
+          throw new Error('Unexpected Gemini response format');
         }
 
         // Clean and format the text
         const cleanedText = text.trim()
           .replace(/\\n/g, '\n')
           .replace(/\\t/g, '\t')
-          .replace(/\\"/g, '"')
+          .replace(/\"/g, '"')
           .replace(/\\/g, '')
           .replace(/\r\n/g, '\n')
           .replace(/\r/g, '\n');
 
         console.log('Final formatted text:', cleanedText);
         return cleanedText;
-
       } catch (error) {
-        console.error('Bedrock API Error:', error);
-        throw new Error(`Bedrock API Error: ${error.message}`);
+        console.error('Gemini API Error:', error);
+        throw new Error(`Gemini API Error: ${error.message}`);
       }
     } catch (error) {
       console.error('LLM Analysis Error:', error);
