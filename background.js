@@ -9,7 +9,7 @@ self.addEventListener('activate', (event) => {
   event.waitUntil(clients.claim());
 });
 
-const { GoogleGenerativeAI } = require("@google/generative-ai");
+const SUMMARY_PROXY_URL = 'https://chronolens-deepseek-proxy.chronolens.workers.dev';
 
 class TimesheetTracker {
   constructor() {
@@ -17,11 +17,7 @@ class TimesheetTracker {
     this.currentTab = null;
     this.activityLog = [];
     
-    // Initialize Gemini
-    this.genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-    this.model = this.genAI.getGenerativeModel({
-      model: "gemini-2.0-flash",
-    });
+    this.summaryProxyUrl = SUMMARY_PROXY_URL;
     
     // Initialize services
     this.initializeServices();
@@ -350,15 +346,15 @@ class TimesheetTracker {
 
   async getLLMDetailedBreakdown(activities, totalTime) {
     try {
-      if (!process.env.GEMINI_API_KEY) {
-        throw new Error('Gemini API key not configured. Please check configuration.');
+      if (!this.summaryProxyUrl.startsWith('https://')) {
+        throw new Error('AI proxy URL not configured. Deploy the Cloudflare Worker and update SUMMARY_PROXY_URL.');
       }
 
       if (!activities || activities.length === 0) {
         throw new Error('No activities provided for analysis');
       }
 
-      console.log('Sending request to Gemini...');
+      console.log('Sending request to AI proxy...');
 
       const formattedActivities = activities.map(activity => {
         if (!activity || !activity.startTime) {
@@ -373,7 +369,6 @@ class TimesheetTracker {
           return {
             domain: activity.domain || 'unknown',
             title: activity.title || 'Untitled',
-            url: activity.url || '',
             timeStamp: `${startTime.toLocaleTimeString('en-US', {
               hour: '2-digit',
               minute: '2-digit',
@@ -397,110 +392,35 @@ class TimesheetTracker {
         throw new Error('No valid activities to analyze after formatting');
       }
 
-      console.log('Formatted activities for AI:', formattedActivities);
-
-      const prompt = `
-      <input>
-      ${JSON.stringify(formattedActivities, null, 2)}
-      </input>
-
-      <prompt>
-      <role>You are a precise time-tracking analyzer and timesheet generator, specifically designed to process and format web browsing activity data into structured, professional timesheet entries.</role>
-
-      <key_responsibilities>
-          <task>Parse and analyze web browsing data with exact timestamp preservation</task>
-          <task>Generate a clean, date-grouped timesheet format</task>
-          <task>Group and summarize related activities</task>
-      </key_responsibilities>
-
-      <output_format>
-      Return a JSON object with the following structure:
-      {
-        "dates": [
-          {
-            "date": "DD-MM-YYYY",
-            "entries": [
-              {
-                "timeStamp": "9:00 AM",
-                "description": "Activity description with details"
-              }
-            ]
-          }
-        ]
-      }
-
-      Example response:
-      {
-        "dates": [
-          {
-            "date": "20-03-2024",
-            "entries": [
-              {
-                "timeStamp": "9:00 AM",
-                "description": "Development Work on Project X - Extended description with details about specific tasks and achievements"
-              },
-              {
-                "timeStamp": "10:45 AM",
-                "description": "Code Review Session - Reviewing pull requests and providing feedback"
-              },
-              {
-                "timeStamp": "2:00 PM",
-                "description": "Feature Implementation - Working on new functionality with detailed progress notes"
-              }
-            ]
-          }
-        ]
-      }
-
-      Rules:
-      - Group entries by date in the dates array
-      - Use 12-hour time format with AM/PM for timeStamp
-      - Include detailed descriptions without truncation
-      - Keep descriptions informative and complete
-      - Always return valid JSON that matches the structure above
-      - Ensure all dates are in DD-MM-YYYY format
-      </output_format>
-
-          <description_enhancement_criteria>
-          Descriptions should:
-          1. Start with the primary work context or project name
-          2. Describe specific tasks and activities
-          3. Include measurable outcomes or progress
-          4. Use action verbs
-          5. Be clear and professional
-          6. Avoid vague or generic statements
-
-          Examples of Strong Descriptions:
-          - "Developed backend API endpoints for customer registration module, completing 3 critical integration points and resolving authentication security gaps"
-          - "Conducted comprehensive code review for marketing dashboard project, identified and addressed 7 potential performance bottlenecks"
-          - "Collaborated with design team to refine user interface wireframes, implementing 12 UX improvements based on recent user feedback"
-          </description_enhancement_criteria>
-
-      <instructions>
-      1. Process the provided browsing activities
-      2. Group activities by date
-      3. Format the output as JSON exactly matching the structure above
-      4. Use DD-MM-YYYY format for dates (e.g., "20-03-2024")
-      5. Use 12-hour time format with AM/PM
-      6. Include complete, detailed descriptions
-      7. Ensure the JSON is properly formatted and valid
-      8. Do not include any text outside the JSON object
-      </instructions>
-      </prompt>
-`;
+      console.log('Formatted activities for AI:', formattedActivities.length);
 
       try {
-        // Use Gemini's generateContent method
-        const result = await this.model.generateContent(prompt);
-        let text = '';
-        if (result && result.response && typeof result.response.text === 'function') {
-          text = await result.response.text();
-        } else if (result && typeof result.text === 'function') {
-          text = await result.text();
-        } else if (result && typeof result.text === 'string') {
-          text = result.text;
-        } else {
-          throw new Error('Unexpected Gemini response format');
+        const response = await fetch(this.summaryProxyUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            activities: formattedActivities
+          })
+        });
+
+        const responseText = await response.text();
+        let result;
+        try {
+          result = JSON.parse(responseText);
+        } catch (parseError) {
+          throw new Error(`Invalid AI proxy response: ${responseText || parseError.message}`);
+        }
+
+        if (!response.ok) {
+          const apiMessage = result?.error || response.statusText;
+          throw new Error(`AI proxy request failed (${response.status}): ${apiMessage}`);
+        }
+
+        const text = result?.summary;
+        if (typeof text !== 'string') {
+          throw new Error('Unexpected AI proxy response format');
         }
 
         // Clean and format the text
@@ -515,8 +435,8 @@ class TimesheetTracker {
         console.log('Final formatted text:', cleanedText);
         return cleanedText;
       } catch (error) {
-        console.error('Gemini API Error:', error);
-        throw new Error(`Gemini API Error: ${error.message}`);
+        console.error('AI proxy error:', error);
+        throw new Error(`AI proxy error: ${error.message}`);
       }
     } catch (error) {
       console.error('LLM Analysis Error:', error);
@@ -565,7 +485,7 @@ class TimesheetTracker {
           startTime,
           endTime,
           url
-        ].map(field => `"${field}"`).join(',');
+        ].map(field => this._csvCell(field)).join(',');
         
         csvContent += row + '\n';
       });
@@ -668,6 +588,14 @@ class TimesheetTracker {
       return `${hours}h ${remainingMinutes}m`;
     }
     return `${remainingMinutes}m`;
+  }
+
+  _csvCell(value) {
+    let text = String(value || '').replace(/"/g, '""');
+    if (/^[=+\-@]/.test(text.trimStart())) {
+      text = `'${text}`;
+    }
+    return `"${text}"`;
   }
 }
 

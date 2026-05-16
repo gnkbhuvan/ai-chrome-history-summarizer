@@ -10,9 +10,6 @@
     "clean:test": "rimraf node_modules/public-encrypt/test",
     "clean": "npm run clean:dist && npm run clean:test"
   },
-  "dependencies": {
-    "@google/generative-ai": "^0.2.0"
-  },
   "devDependencies": {
     "@babel/core": "^7.24.0",
     "@babel/preset-env": "^7.24.0",

@@ -87,12 +87,15 @@ document.addEventListener('DOMContentLoaded', function() {
   updateStats(historyDateInput.value);
 
   // Load saved output if it exists
-  chrome.storage.local.get(['timesheetOutput'], function(result) {
-    if (result.timesheetOutput) {
-      output.innerHTML = result.timesheetOutput;
+  chrome.storage.local.get(['timesheetSummary', 'timesheetOutput'], function(result) {
+    if (result.timesheetSummary) {
+      renderSummary(result.timesheetSummary);
       copyBtn.disabled = false;
       clearBtn.disabled = false;
     } else {
+      if (result.timesheetOutput) {
+        chrome.storage.local.remove(['timesheetOutput']);
+      }
       copyBtn.disabled = true;
       clearBtn.disabled = true;
     }
@@ -154,7 +157,11 @@ document.addEventListener('DOMContentLoaded', function() {
     const userFriendlyMessage = userFriendlyMessages[message] || userFriendlyMessages.default;
     
     // Show error message with icon
-    errorMessage.innerHTML = `<i class="fas fa-exclamation-circle"></i> ${userFriendlyMessage}`;
+    errorMessage.replaceChildren();
+    const icon = document.createElement('i');
+    icon.className = 'fas fa-exclamation-circle';
+    const messageText = document.createTextNode(` ${userFriendlyMessage}`);
+    errorMessage.append(icon, messageText);
     errorMessage.style.display = 'block';
     
     // Hide loading indicator if it's showing
@@ -170,120 +177,131 @@ document.addEventListener('DOMContentLoaded', function() {
     }
   }
 
-  // Function to format output
-  function formatOutput(text) {
+  function ensureOutputStyles() {
+    if (document.getElementById('timesheet-output-styles')) {
+      return;
+    }
+
+    const style = document.createElement('style');
+    style.id = 'timesheet-output-styles';
+    style.textContent = `
+      .timesheet-container {
+        background: rgba(26, 26, 46, 0.8);
+        border-radius: 10px;
+        padding: 12px;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.2);
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        margin-bottom: 20px;
+      }
+      .date-header {
+        color: #4a9eff;
+        font-size: 1.2em;
+        font-weight: 600;
+        padding: 4px 0;
+        border-bottom: 2px solid #4a9eff;
+        margin: 0;
+      }
+      .timesheet-row {
+        display: flex;
+        flex-direction: column;
+        background: rgba(255, 255, 255, 0.05);
+        border-radius: 4px;
+        padding: 8px 12px;
+        transition: background 0.3s ease;
+        margin: 0;
+      }
+      .timesheet-row:hover {
+        background: rgba(74, 158, 255, 0.1);
+      }
+      .time-cell {
+        color: #4a9eff;
+        font-weight: 500;
+        margin: 0;
+        padding-bottom: 2px;
+      }
+      .description-cell {
+        color: #e6e6e6;
+        line-height: 1.4;
+        padding-left: 16px;
+        border-left: 2px solid rgba(74, 158, 255, 0.3);
+        margin: 0;
+      }
+    `;
+    document.head.appendChild(style);
+  }
+
+  function normalizeSummaryText(text) {
     if (!text || typeof text !== 'string') {
-      console.error('Invalid input for formatOutput:', text);
+      console.error('Invalid input for summary rendering:', text);
       return '';
     }
-    // Remove code block markers if present
+
     let cleaned = text.trim();
-    // Remove triple backtick code block (with or without json)
     if (cleaned.startsWith('```')) {
       cleaned = cleaned.replace(/^```[a-zA-Z]*\n?/, '').replace(/```$/, '').trim();
     }
+    return cleaned;
+  }
+
+  function renderSummary(text) {
+    ensureOutputStyles();
+    output.replaceChildren();
+
+    const cleaned = normalizeSummaryText(text);
+    if (!cleaned) {
+      return;
+    }
+
     try {
-      // Parse the JSON response
       const data = JSON.parse(cleaned);
       if (!data.dates || !Array.isArray(data.dates)) {
         throw new Error('Invalid response format: missing dates array');
       }
-      let output = '';
-      const styles = `
-        <style>
-          body {
-            background: linear-gradient(to right, #1a1a2e, #16213e);
-            color: #e6e6e6;
-            margin: 0;
-            padding: 0;
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-          }
-          #output {
-            padding: 12px;
-            height: 100vh;
-            overflow-y: auto;
-            box-sizing: border-box;
-            white-space: normal;
-          }
-          .timesheet-container {
-            background: rgba(26, 26, 46, 0.8);
-            border-radius: 10px;
-            padding: 12px;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.2);
-            display: flex;
-            flex-direction: column;
-            gap: 10px;
-            margin-bottom: 20px;
-          }
-          .date-header {
-            color: #4a9eff;
-            font-size: 1.2em;
-            font-weight: 600;
-            padding: 4px 0;
-            border-bottom: 2px solid #4a9eff;
-            margin: 0;
-          }
-          .timesheet-row {
-            display: flex;
-            flex-direction: column;
-            background: rgba(255, 255, 255, 0.05);
-            border-radius: 4px;
-            padding: 8px 12px;
-            transition: background 0.3s ease;
-            margin: 0;
-          }
-          .timesheet-row:hover {
-            background: rgba(74, 158, 255, 0.1);
-          }
-          .time-cell {
-            color: #4a9eff;
-            font-weight: 500;
-            margin: 0;
-            padding-bottom: 2px;
-          }
-          .description-cell {
-            color: #e6e6e6;
-            line-height: 1.4;
-            padding-left: 16px;
-            border-left: 2px solid rgba(74, 158, 255, 0.3);
-            margin: 0;
-          }
-          .error-section {
-            background: rgba(239, 68, 68, 0.1);
-            color: #ef4444;
-            padding: 16px;
-            border-radius: 8px;
-            font-family: 'JetBrains Mono', monospace;
-            white-space: pre-wrap;
-          }
-        </style>
-      `;
-      // Process each date
+
       data.dates.forEach(dateGroup => {
-        output += `<div class="timesheet-container">`;
-        output += `<div class="date-header">[${dateGroup.date}]</div>`;
-        // Add entries for this date
-        dateGroup.entries.forEach(entry => {
-          output += `
-            <div class="timesheet-row">
-              <div class="time-cell">${entry.timeStamp}</div>
-              <div class="description-cell">${entry.description}</div>
-            </div>
-          `;
+        const container = document.createElement('div');
+        container.className = 'timesheet-container';
+
+        const dateHeader = document.createElement('div');
+        dateHeader.className = 'date-header';
+        dateHeader.textContent = `[${dateGroup.date || 'Unknown date'}]`;
+        container.appendChild(dateHeader);
+
+        const entries = Array.isArray(dateGroup.entries) ? dateGroup.entries : [];
+        entries.forEach(entry => {
+          const row = document.createElement('div');
+          row.className = 'timesheet-row';
+
+          const timeCell = document.createElement('div');
+          timeCell.className = 'time-cell';
+          timeCell.textContent = entry?.timeStamp || '';
+
+          const descriptionCell = document.createElement('div');
+          descriptionCell.className = 'description-cell';
+          descriptionCell.textContent = entry?.description || '';
+
+          row.append(timeCell, descriptionCell);
+          container.appendChild(row);
         });
-        output += `</div>`;
+
+        output.appendChild(container);
       });
-      return styles + output;
     } catch (error) {
       console.error('Error formatting output:', error);
-      // If JSON parsing fails, display the raw text in pre-formatted error section
-      return `
-        <div class="timesheet-container">
-          <div class="error-section">
-            <pre>${text}</pre>
-          </div>
-        </div>
-      `;
+      const container = document.createElement('div');
+      container.className = 'timesheet-container';
+
+      const errorSection = document.createElement('div');
+      errorSection.className = 'error-section';
+
+      const pre = document.createElement('pre');
+      pre.textContent = text;
+
+      errorSection.appendChild(pre);
+      container.appendChild(errorSection);
+      output.appendChild(container);
     }
   }
 
@@ -299,7 +317,7 @@ document.addEventListener('DOMContentLoaded', function() {
     loading.style.display = 'block';
     successMessage.style.display = 'none';
     errorMessage.style.display = 'none';
-    output.innerHTML = '';
+    output.replaceChildren();
 
     chrome.runtime.sendMessage({ 
       action: 'summarize',
@@ -308,14 +326,12 @@ document.addEventListener('DOMContentLoaded', function() {
       loading.style.display = 'none';
 
       if (response.status === 'success' && response.summary) {
-        // Format the summary before displaying
-        output.innerHTML = formatOutput(response.summary);
+        renderSummary(response.summary);
         copyBtn.disabled = false;
         clearBtn.disabled = false;
         
-        // Save the formatted output
         chrome.storage.local.set({
-          'timesheetOutput': output.innerHTML
+          'timesheetSummary': response.summary
         });
 
         // Convert yyyy-MM-dd to Date for display
@@ -382,8 +398,8 @@ document.addEventListener('DOMContentLoaded', function() {
   });
 
   clearBtn.addEventListener('click', function() {
-    output.innerHTML = '';
-    chrome.storage.local.remove(['timesheetOutput']);
+    output.replaceChildren();
+    chrome.storage.local.remove(['timesheetSummary', 'timesheetOutput']);
     copyBtn.disabled = true;
     clearBtn.disabled = true;
     showSuccess('Output cleared!');
